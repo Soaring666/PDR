@@ -1,6 +1,4 @@
-import h5py
 import numpy as np
-import pandas as pd
 import transforms3d
 import random
 import math
@@ -61,16 +59,15 @@ def augment_cloud(Ps, args, return_augmentation_params=False):
     return result
 
 if __name__ == '__main__':
-    import pdb
     args = {'pc_augm_scale':0, 'pc_augm_rot':False, 'pc_rot_scale':30.0, 'pc_augm_mirror_prob':0.5, 'pc_augm_jitter':False}
     N = 2048
-    C = 6
+    C = 3
     num_of_clouds = 2
     pc = []
     for _ in range(num_of_clouds):
         pc.append(np.random.rand(N,C)-0.5)
     
     result = augment_cloud(pc, args)
-    pdb.set_trace()
+    print(type(result))
 
 
