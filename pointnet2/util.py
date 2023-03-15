@@ -20,7 +20,7 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
-        if not summary_writer is None:
+        if summary_writer is not None:
             # record the val in tensorboard
             summary_writer.add_scalar(self.name, val, global_step=global_step)
 
@@ -279,18 +279,13 @@ def training_loss(net, loss_fn, X, diffusion_hyperparams, label=None, condition=
     # diffusion_steps = torch.ones(B,1,1).long().cuda() * 999
     z = std_normal(X.shape) 
     sqrt_Alpha_bar = torch.sqrt(Alpha_bar[diffusion_steps])
+    #transform_X is X_t in the forward
     transformed_X = sqrt_Alpha_bar * X + torch.sqrt(1-Alpha_bar[diffusion_steps]) * z   
-    # if not mean_shape is None:
-    #     transformed_X = transformed_X + (1-sqrt_Alpha_bar) * mean_shape
-        # we assume X and mean_shape are in the scale of [-1,1]
-    # compute x_t from q(x_t|x_0)
-    # input_X = torch.cat([transformed_X, transformed_X], dim=2)
-    if condition is None:
+
+    if condition is None:   #conditional points
         epsilon_theta = net(transformed_X, ts=diffusion_steps.view(B,), label=label)  # predict \epsilon according to \epsilon_\theta
     else:
         epsilon_theta = net(transformed_X, condition, ts=diffusion_steps.view(B,), label=label)
-    # net.report_neighbor_stats()
-    # pdb.set_trace()
     return loss_fn(epsilon_theta, z)
 
 

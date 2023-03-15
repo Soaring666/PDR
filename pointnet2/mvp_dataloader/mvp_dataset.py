@@ -53,9 +53,9 @@ class ShapeNetH5(data.Dataset):
         # load gt complete point cloud
         gt_file = h5py.File(self.gt_path, 'r')
         self.gt_data = np.array((gt_file['complete_pcds'][()]))
-        self.gt_labels = np.array((input_file['labels'][()]))
+        self.gt_labels = np.array((gt_file['labels'][()]))
         self.novel_gt_data = np.array((gt_file['novel_complete_pcds'][()]))
-        self.novel_gt_labels = np.array((input_file['novel_labels'][()]))
+        self.novel_gt_labels = np.array((gt_file['novel_labels'][()]))
         gt_file.close()
 
         # load XT generated from a trained DDPM
@@ -219,7 +219,7 @@ if __name__ == '__main__':
     aug_args =  False
     include_generated_samples=False
     # generated_sample_path='generated_samples/T1000_betaT0.02_shape_completion_mirror_rot_60_scale_1.2_translation_0.05/ckpt_623999'
-    dataset = ShapeNetH5('./data/mvp_dataset', train=False, npoints=2048, novel_input=True, novel_input_only=False,
+    dataset = ShapeNetH5('E:/A-CODE/3D点云/PDR/pointnet2/mvp_dataloader/data/mvp_dataset', train=False, npoints=2048, novel_input=True, novel_input_only=False,
                             augmentation=aug_args, scale=1,
                             random_subsample=True, num_samples=1000,
                             include_generated_samples=include_generated_samples, 

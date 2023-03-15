@@ -14,17 +14,21 @@ import numpy as np
 def calc_t_emb(ts, t_emb_dim):
     """
     Embed time steps into a higher dimension space
+    input:
+        ts: (B,)
+        t_emb_dim: int
+    output: 
+        t_emb: (B, t_emb_dim)
     """
     assert t_emb_dim % 2 == 0
 
     # input is of shape (B) of integer time steps
     # output is of shape (B, t_emb_dim)
-    ts = ts.unsqueeze(1)
+    ts = ts.unsqueeze(1)    #(B, 1)
     half_dim = t_emb_dim // 2
     t_emb = np.log(10000) / (half_dim - 1)
     t_emb = torch.exp(torch.arange(half_dim) * -t_emb)
-    t_emb = t_emb.to(ts.device) # shape (half_dim)
-    # ts is of shape (B,1)
+    t_emb = t_emb.to(ts.device)   #(half_dim,)
     t_emb = ts * t_emb
     t_emb = torch.cat((torch.sin(t_emb), torch.cos(t_emb)), 1)
     
@@ -49,17 +53,26 @@ class PointNet2SemSegSSG(nn.Module):
                             include_global_feature=False, global_feature_dim=None,
                             additional_fea_dim=None, neighbor_def='radius', activation='relu',
                             bn=True, attention_setting=None, global_attention_setting=None):
+        """
+        npoint: [1024, 256, 64, 16]
+        radius: [0.1, 0.2, 0.4, 0.8]
+        nsample: [32, 32, 32, 32]
+        feature_dim: [32, 64, 128, 256, 512]
+        mlp_depth: 3
+        additional_fea_dim: [32, 32, 64, 64]
+        include_class_condition: True
+        global_feature_dim: 1024
+        class_condition_dim: None
+        global_attention_setting: None
+        """
         SA_modules = nn.ModuleList()
-        # include_t = self.hparams['include_t']
         if not isinstance(neighbor_def, list):
             neighbor_def = [neighbor_def] * len(radius)
         t_dim = self.hparams['t_dim']
-        # pdb.set_trace()
         for i in range(len(npoint)):
             if additional_fea_dim is None:
                 mlp_spec = [feature_dim[i]]*mlp_depth + [feature_dim[i+1]]
             else:
-                # mlp_spec = [ feature_dim[i]+additional_fea_dim[i] ]*mlp_depth + [feature_dim[i+1]]
                 mlp_spec = [feature_dim[i]]*mlp_depth + [feature_dim[i+1]]
                 mlp_spec[0] = mlp_spec[0] + additional_fea_dim[i]
             
@@ -68,25 +81,26 @@ class PointNet2SemSegSSG(nn.Module):
                 # if bn_first, we will need to add a conv layer at the beginning
                 # first_mlp_input_dim = mlp_spec[1] if first_conv else in_fea_dim
                 if not first_conv:
-                    mlp_spec[0] = in_fea_dim
+                    mlp_spec[0] = in_fea_dim  #3 + 32
             else:
                 first_conv = False
             
+            #global_feature: from condition points, second_condition: class embedding
             if include_global_feature:
                 include_condition = True
                 condition_dim = global_feature_dim
                 include_second_condition = include_class_condition
-                second_condition_dim = self.hparams["class_condition_dim"] if (class_condition_dim is None) else class_condition_dim
+                second_condition_dim = self.hparams["class_condition_dim"] if (class_condition_dim is None) else class_condition_dim  #128
             else:
                 include_condition = include_class_condition
                 condition_dim = self.hparams["class_condition_dim"] if (class_condition_dim is None) else class_condition_dim
                 include_second_condition = False
                 second_condition_dim = None
 
-            use_global_attention = ((not global_attention_setting is None) and 
+            use_global_attention = ((global_attention_setting is not None) and 
                                     global_attention_setting['use_global_attention_module'] and
-                                    i in global_attention_setting['global_attention_layer_index'])
-            this_global_attention_setting = global_attention_setting if use_global_attention else None
+                                    i in global_attention_setting['global_attention_layer_index'])    #False
+            this_global_attention_setting = global_attention_setting if use_global_attention else None    #None
 
             SA_modules.append(
                 PointnetSAModule(

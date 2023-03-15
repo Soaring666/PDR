@@ -13,23 +13,9 @@ from util import find_max_epoch, print_size
 from util import training_loss, calc_diffusion_hyperparams
 from scheduler import QuantityScheduler
 
-from distributed import init_distributed, apply_gradient_allreduce, reduce_tensor
-
-# torch_version = torch.__version__
-# if torch_version == '1.7.1':
-# from models.pointnet2_ssg_sem import PointNet2SemSegSSG
-from models.pointnet2_with_pcld_condition import PointNet2CloudCondition
-from models.point_upsample_module import point_upsample
-from models.pointwise_net import get_pointwise_net
-# from chamfer_loss import Chamfer_Loss
+from models.pointnet2_with_pcld_condition import PointNet2CloudCondition  #net
+from models.point_upsample_module import point_upsample  #refine
 from chamfer_loss_new import calc_cd
-# elif torch_version == '1.4.0':
-#     import sys
-#     sys.path.append('models/pvd')
-#     from model_forward import PVCNN2
-#     from metrics.evaluation_metrics import EMD_CD
-# else:
-#     raise Exception('Pytorch version %s is not supported' % torch_version)
 
 from shutil import copyfile
 import copy
@@ -37,7 +23,6 @@ import copy
 from completion_eval import evaluate, get_each_category_distance, gather_eval_result_of_different_iters, plot_train_and_val_eval_result
 from json_reader import replace_list_with_string_in_a_dict, restore_string_to_list_in_a_dict
 import pickle
-import pdb
 
 def evaluate_per_rank(net, rank, num_gpus, root_directory, local_path, n_iter, 
                     test_trainset=False, num_samples_tested_in_trainset=0, dataset='shapenet', scale=1,
@@ -276,13 +261,13 @@ def split_data(data, dataset, conditioned_on_cloud, include_class_condition,
             num_points = X.shape[1]
             idx = torch.randperm(num_points)
             X = X[:,idx,:]
-            if not condition is None:
+            if condition is not None:
                 num_points = condition.shape[1]
                 idx = torch.randperm(num_points)
                 if random_subsample_partial_points > 1:
                     idx = idx[0:random_subsample_partial_points]
                 condition = condition[:,idx,:]
-            if not generated is None:
+            if generated is not None:
                 num_points = generated.shape[1]
                 idx = torch.randperm(num_points)
                 generated = generated[:,idx,:]
@@ -313,7 +298,7 @@ def train(num_gpus, config_file, rank, group_name, dataset, root_directory, outp
     iters_per_logging (int):        number of iterations to save training log and compute validation loss, default is 100
     learning_rate (float):          learning rate
     """
-    assert task in ['completion', 'refine_completion', 'denoise']
+    assert task in ['completion', 'refine_completion']
     if task == 'completion' and only_save_the_best_model:
         raise Exception('To train the diffusion model, we should save every checkpoint')
     # generate experiment (local) path
@@ -324,19 +309,10 @@ def train(num_gpus, config_file, rank, group_name, dataset, root_directory, outp
         exp_name_split[-1] = 'refine_exp_' + exp_name_split[-1]
         exp_name = os.path.join(*exp_name_split)
         local_path = os.path.join(local_path, exp_name)
-        
-    # Create tensorboard logger.
-    if rank == 0:
-        tb = SummaryWriter(os.path.join(root_directory, local_path, tensorboard_directory))
-
-    # distributed running initialization
-    if num_gpus > 1:
-        dist_config.pop('CUDA_VISIBLE_DEVICES', None)
-        init_distributed(rank, num_gpus, group_name, **dist_config)
 
     # Get shared output_directory ready
     output_directory = os.path.join(root_directory, local_path, output_directory)
-    if rank == 0:
+    if True:
         if not os.path.isdir(output_directory):
             os.makedirs(output_directory)
             os.chmod(output_directory, 0o775)
@@ -355,31 +331,12 @@ def train(num_gpus, config_file, rank, group_name, dataset, root_directory, outp
             diffusion_hyperparams[key] = diffusion_hyperparams[key].cuda()
 
     # load training data
-    if split_dataset_to_multi_gpus and num_gpus > 1:
-        # we need to make sure that batch_size and eval_batch_size can be divided by number of gpus
-        trainset_config['batch_size'] = int(trainset_config['batch_size']/num_gpus)
-        trainset_config['eval_batch_size'] = int(trainset_config['eval_batch_size']/num_gpus)
-        trainloader = get_dataloader(trainset_config, rank=rank, world_size=num_gpus, append_samples_to_last_rank=True)
-    else:
-        trainloader = get_dataloader(trainset_config)
-    
+    trainloader = get_dataloader(trainset_config)
     print('Data loaded')
     
-    network_type = pointnet_config.get('network_type', 'pointnet++')
-    assert network_type in ['pointnet++', 'pointwise_net', 'pvd']
-    if network_type == 'pointnet++':
-        net = PointNet2CloudCondition(pointnet_config).cuda()
-    elif network_type == 'pointwise_net':
-        net = get_pointwise_net(pointnet_config['network_args']).cuda()
-    elif network_type == 'pvd':
-        net = PVCNN2(**pointnet_config['network_args']).cuda()
-
+    net = PointNet2CloudCondition(pointnet_config).cuda()
     net.train()
     print_size(net)
-
-    # apply gradient all reduce
-    if num_gpus > 1:
-        net = apply_gradient_allreduce(net)
 
     # optimizer
     optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)
@@ -428,8 +385,6 @@ def train(num_gpus, config_file, rank, group_name, dataset, root_directory, outp
             output_scale_factor_scheduler = QuantityScheduler(scale_factor_schedule['init_epoch'], 
                     scale_factor_schedule['final_epoch'], scale_factor_schedule['init_value'], 
                     refine_config['output_scale_factor'], loader_len)
-    # elif task == 'denoise':
-        # loss_function = Chamfer_Loss()
     else: # completion task, train the conditional generation DDPM
         loss_function = nn.MSELoss()
 
@@ -455,62 +410,38 @@ def train(num_gpus, config_file, rank, group_name, dataset, root_directory, outp
                                     random_shuffle_points, task=task,
                                     random_subsample_partial_points=random_subsample_partial_points)
             else:
+                #1.将数据放到cuda中 2.打乱数据  （看起来没什么用）
                 X, condition, label = split_data(data, dataset, conditioned_on_cloud, 
                                     pointnet_config.get('include_class_condition', False), 
                                     random_shuffle_points, task=task,
                                     random_subsample_partial_points=random_subsample_partial_points)
-                if task == 'denoise':
-                    # condition = None
-                    generated = X + torch.normal(0, denoise_config['noise_magnitude'], size=X.shape, device=X.device)
-            
-            # back-propagation
             optimizer.zero_grad()
             
-            # if dataset == 'shapenet' or dataset == 'shapenet_pytorch':
-            #     scale = trainset_config['scale_factor']
-            # elif dataset in ['mvp_dataset', 'shapenet_chunk', 'mvp40', 'partnet']:
             scale = trainset_config['scale'] # scale of the shapes from the dataset
 
-            if task in ['refine_completion', 'denoise']:
-                if task == 'refine_completion':
-                    displacement = net(generated, condition, ts=None, label=label)
-                    if refine_config.get('use_output_scale_factor_schedule', False):
-                        output_scale_factor_value = output_scale_factor_scheduler.get_quantity(n_iter)
-                    else:
-                        output_scale_factor_value = refine_config['output_scale_factor']
-                    
-                    point_upsample_factor = pointnet_config.get('point_upsample_factor', 1)
-                    if point_upsample_factor > 1:
-                        intermediate_refined_X_loss_weight = pointnet_config['intermediate_refined_X_loss_weight']
-                        # refined_X is of shape (B, N*point_upsample_factor, 3)
-                        refined_X, intermediate_refined_X = point_upsample(generated, displacement, point_upsample_factor, 
-                                                            pointnet_config['include_displacement_center_to_final_output'],
-                                                            output_scale_factor_value)
-                    else:
-                        intermediate_refined_X_loss_weight = 0
-                        refined_X = generated + displacement * output_scale_factor_value
-                elif task == 'denoise':
-                    displacement = net(generated, condition=condition, ts=None, label=label)
-                    output_scale_factor_value = denoise_config['output_scale_factor']
-                    refined_X = generated + displacement * output_scale_factor_value
+            if task == 'refine_completion':
+                displacement = net(generated, condition, ts=None, label=label)
+                if refine_config.get('use_output_scale_factor_schedule', False):
+                    output_scale_factor_value = output_scale_factor_scheduler.get_quantity(n_iter)
+                else:
+                    output_scale_factor_value = refine_config['output_scale_factor']
+                
+                point_upsample_factor = pointnet_config.get('point_upsample_factor', 1)
+                if point_upsample_factor > 1:
+                    intermediate_refined_X_loss_weight = pointnet_config['intermediate_refined_X_loss_weight']
+                    # refined_X is of shape (B, N*point_upsample_factor, 3)
+                    refined_X, intermediate_refined_X = point_upsample(generated, displacement, point_upsample_factor, 
+                                                        pointnet_config['include_displacement_center_to_final_output'],
+                                                        output_scale_factor_value)
+                else:
                     intermediate_refined_X_loss_weight = 0
+                    refined_X = generated + displacement * output_scale_factor_value
 
                 refined_X = refined_X / scale / 2
                 X = X / scale / 2
                 cd_loss_type = (refine_config.get('cd_loss_type', 'cd_t') if task == 'refine_completion' 
                                     else denoise_config['cd_loss_type'])
-                # if cd_loss_type == 'cd_t':
-                #     loss = loss_function(X, refined_X, batch_reduction='mean')
-                #     if intermediate_refined_X_loss_weight > 0:
-                #         intermediate_refined_X_loss = loss_function(X, intermediate_refined_X, batch_reduction='mean')
-                #         loss = loss + intermediate_refined_X_loss * intermediate_refined_X_loss_weight
-                # else:
-                #     # cd p loss
-                #     loss, _ = calc_cd(X, refined_X, calc_f1=False)
-                #     loss = loss.mean()
-                #     if intermediate_refined_X_loss_weight > 0:
-                #         intermediate_refined_X_loss,_ = calc_cd(X, intermediate_refined_X, calc_f1=False)
-                #         loss = loss + intermediate_refined_X_loss.mean() * intermediate_refined_X_loss_weight
+               
                 if cd_loss_type == 'cd_t':
                     loss_idx = 1
                 else:
@@ -521,15 +452,12 @@ def train(num_gpus, config_file, rank, group_name, dataset, root_directory, outp
                     intermediate_refined_X_loss = calc_cd(X, intermediate_refined_X, calc_f1=False)[loss_idx]
                     loss = loss + intermediate_refined_X_loss.mean() * intermediate_refined_X_loss_weight
 
-            else: # task = completion, train the conditional generation DDPM
+            else: # task = completion
                 output_scale_factor_value = None
                 loss = training_loss(net, loss_function, X, diffusion_hyperparams,
                                     label=label, condition=condition)
             
-            if num_gpus > 1:
-                reduced_loss = reduce_tensor(loss.data, num_gpus).item()
-            else:
-                reduced_loss = loss.item()
+            reduced_loss = loss.item()
             loss.backward()
             optimizer.step()
 
@@ -542,27 +470,27 @@ def train(num_gpus, config_file, rank, group_name, dataset, root_directory, outp
                         displacement.abs().mean()*output_scale_factor_value), flush=True)
                 else: # completion task
                     print("iteration: {} \treduced loss: {:.6f} \tloss: {:.6f}".format(n_iter, reduced_loss, loss.item()), flush=True)
-                if rank == 0:
-                    tb.add_scalar("Log-Train-Loss", torch.log(loss).item(), n_iter)
-                    tb.add_scalar("Log-Train-Reduced-Loss", np.log(reduced_loss), n_iter)
-                    if task == 'refine_completion':
-                        tb.add_scalar("output_scale_factor", output_scale_factor_value, n_iter)
+                
+                tb = SummaryWriter('log_dir')
+                tb.add_scalar("Log-Train-Loss", torch.log(loss).item(), n_iter)
+                tb.add_scalar("Log-Train-Reduced-Loss", np.log(reduced_loss), n_iter)
+                if task == 'refine_completion':
+                    tb.add_scalar("output_scale_factor", output_scale_factor_value, n_iter)
             
             # save checkpoint
             if n_iter > 0 and (n_iter+1) % iters_per_ckpt == 0:
                 num_ckpts = num_ckpts + 1
                 # save checkpoint
-                if rank == 0:
-                    if last_saved_model is not None and only_save_the_best_model:
-                        os.remove(last_saved_model)
-                    checkpoint_name = 'pointnet_ckpt_{}.pkl'.format(n_iter)
-                    torch.save({'iter': n_iter,
-                                'model_state_dict': net.state_dict(),
-                                'optimizer_state_dict': optimizer.state_dict(),
-                                'training_time_seconds': int(time.time()-time0)}, 
-                                os.path.join(output_directory, checkpoint_name))
-                    print('model at iteration %s at epoch %d is saved' % (n_iter, int((n_iter+1)/loader_len)), flush=True)
-                    last_saved_model = os.path.join(output_directory, checkpoint_name)
+                if last_saved_model is not None and only_save_the_best_model:
+                    os.remove(last_saved_model)
+                checkpoint_name = 'pointnet_ckpt_{}.pkl'.format(n_iter)
+                torch.save({'iter': n_iter,
+                            'model_state_dict': net.state_dict(),
+                            'optimizer_state_dict': optimizer.state_dict(),
+                            'training_time_seconds': int(time.time()-time0)}, 
+                            os.path.join(output_directory, checkpoint_name))
+                print('model at iteration %s at epoch %d is saved' % (n_iter, int((n_iter+1)/loader_len)), flush=True)
+                last_saved_model = os.path.join(output_directory, checkpoint_name)
 
                 # evaluate the model at the checkpoint
                 if n_iter >= eval_start_iter and num_ckpts % eval_per_ckpt==0:
@@ -579,9 +507,7 @@ def train(num_gpus, config_file, rank, group_name, dataset, root_directory, outp
                         raise Exception('%s dataset is not supported' % dataset)
                     
                     add_noise_to_generated_for_refine_exp = False
-                    if task == 'denoise':
-                        noise_magnitude_added_to_gt = denoise_config['noise_magnitude']
-                    elif task == 'refine_completion':
+                    if task == 'refine_completion':
                         add_noise_to_generated_for_refine_exp = refine_config.get('add_noise_to_generated_for_refine_exp', False)
                         noise_magnitude_added_to_gt = trainset_config['augmentation']['noise_magnitude_for_generated_samples']
                     else:
@@ -634,38 +560,25 @@ def train(num_gpus, config_file, rank, group_name, dataset, root_directory, outp
 
             n_iter += 1
     
-    # if dataset == 'shapenet':
-    #     trainloader.kill_data_processes()
 
 
 if __name__ == "__main__":
     # import pdb
     parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--config', type=str, default='config.json', 
+    parser.add_argument('-c', '--config', type=str, default='./exp_configs/mvp_configs/config_standard_attention_real_3072_partial_points_rot_90_scale_1.2_translation_0.1.json', 
                         help='JSON file for configuration')
-    parser.add_argument('-r', '--rank', type=int, default=0,
-                        help='rank of process for distributed')
-    parser.add_argument('-g', '--group_name', type=str, default='',
-                        help='name of group for distributed')
-    parser.add_argument('--dist_url', type=str, default='',
-                        help='distributed training url')
     args = parser.parse_args()
 
-    # Parse configs. Globals nicer in this case
     with open(args.config) as f:
         data = f.read()
     config = json.loads(data)
     config = restore_string_to_list_in_a_dict(config)
     print('The configuration is:')
     print(json.dumps(replace_list_with_string_in_a_dict(copy.deepcopy(config)), indent=4))
-    # global gen_config
-    # gen_config = config["gen_config"]
     global train_config
     train_config = config["train_config"]        # training parameters
     global dist_config
     dist_config = config["dist_config"]         # to initialize distributed training
-    if len(args.dist_url) > 0:
-        dist_config['dist_url'] = args.dist_url
     global pointnet_config
     pointnet_config = config["pointnet_config"]     # to define pointnet
     global diffusion_config
@@ -698,17 +611,7 @@ if __name__ == "__main__":
             trainset_config['randomly_select_generated_samples'] = refine_config['randomly_select_generated_samples']
         pointnet_config['include_t'] = False
 
-
-    if train_config['task'] == 'denoise':
-        global denoise_config
-        denoise_config = config['denoise_config']
-
-    num_gpus = torch.cuda.device_count()
-    if num_gpus > 1:
-        assert args.group_name != ''
-    else:
-        assert args.rank == 0
     
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
-    train(num_gpus, args.config, args.rank, args.group_name, **train_config)
+    train(args.config, **train_config)

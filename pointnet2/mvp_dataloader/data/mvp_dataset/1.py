@@ -1,10 +1,9 @@
 import h5py
-import datasets
 import numpy as np
 
 from h5py import Dataset, Group, File
 
-with File('mvp_test_gt_2048pts.h5', 'r') as f:
+with File('E:/A-CODE/3D点云/PDR/pointnet2/mvp_dataloader/data/mvp_dataset/mvp_test_input.h5', 'r') as f:
     for key in f.keys():
         print(f[key])
         print(f[key], key, f[key].name)

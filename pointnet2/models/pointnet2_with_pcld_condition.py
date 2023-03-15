@@ -33,16 +33,8 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
         self.global_feature = None
         # global feature extracted from the condition point cloud
 
-        self.concate_partial_with_noisy_input = self.hparams.get('concate_partial_with_noisy_input', False)
-        # whether to directly concate the condition (partial) point cloud with the noisy point cloud x_t and
-        # feed them to a single pointnet++
-        # if not true, we feed the two point clouds to two parallel pointnet++ networks
-        # multi-level features from the condition point cloud is transmitted to the noisy point cloud x_t through
-        # feature transfer modules
-
         self.attention_setting = self.hparams.get("attention_setting", None)
         # FeatureMapper refers to the feature transfer module
-        self.FeatureMapper_attention_setting = copy.deepcopy(self.attention_setting)
         if self.FeatureMapper_attention_setting is not None:
             self.FeatureMapper_attention_setting['use_attention_module'] = (
                             self.FeatureMapper_attention_setting['add_attention_to_FeatureMapper_module'])
@@ -56,21 +48,13 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
             # utilize the class information of the partial point cloud
             self.class_emb = nn.Embedding(self.hparams["num_class"], self.hparams["class_condition_dim"])
         
-        in_fea_dim = self.hparams['in_fea_dim']
-        partial_in_fea_dim = self.hparams.get('partial_in_fea_dim', in_fea_dim)
-        self.attach_position_to_input_feature = self.hparams['attach_position_to_input_feature']
+        in_fea_dim = self.hparams['in_fea_dim']  #0
+        partial_in_fea_dim = self.hparams.get('partial_in_fea_dim', in_fea_dim)  #1
+        self.attach_position_to_input_feature = self.hparams['attach_position_to_input_feature']  #True
         if self.attach_position_to_input_feature:
-            in_fea_dim = in_fea_dim + 3
-            partial_in_fea_dim = partial_in_fea_dim + 3
+            in_fea_dim = in_fea_dim + 3  #3
+            partial_in_fea_dim = partial_in_fea_dim + 3  #4
         
-        self.use_position_encoding = self.hparams.get('use_position_encoding', False)
-        # do not use positional encoding by default, we observe that it does not help
-        if self.use_position_encoding:
-            multires = self.hparams['position_encoding_multires']
-            self.pos_encode, pos_encode_out_dim = get_embedder(multires)
-            in_fea_dim = in_fea_dim + pos_encode_out_dim
-            partial_in_fea_dim = partial_in_fea_dim + pos_encode_out_dim
-
         self.partial_in_fea_dim = partial_in_fea_dim
 
         self.include_abs_coordinate = self.hparams['include_abs_coordinate']
@@ -86,21 +70,18 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
         elif self.network_activation == 'swish':
             self.network_activation_function = Swish()
 
-        self.include_local_feature = self.hparams.get('include_local_feature', True)
+        self.include_local_feature = self.hparams.get('include_local_feature', True)   #True
         # whether to use multi-level local features from the condition point cloud to guide the diffusion model
-        self.include_global_feature = self.hparams.get('include_global_feature', False)
+        self.include_global_feature = self.hparams.get('include_global_feature', False)   #True
         # whether to use the global feature from the condition point cloud to guide the diffusion model
 
-        if self.concate_partial_with_noisy_input:
-            assert not self.include_local_feature
-            assert not self.include_global_feature
         self.global_feature_dim = None
-        remove_last_activation = self.hparams.get('global_feature_remove_last_activation', True)
+        remove_last_activation = self.hparams.get('global_feature_remove_last_activation', True)  #False
         if self.include_global_feature:
             if self.use_position_encoding:
                 self.hparams['pnet_global_feature_architecture'][0][0] = (
-                    self.hparams['pnet_global_feature_architecture'][0][0]+pos_encode_out_dim)
-            self.global_feature_dim = self.hparams['pnet_global_feature_architecture'][1][-1]
+                    self.hparams['pnet_global_feature_architecture'][0][0])
+            self.global_feature_dim = self.hparams['pnet_global_feature_architecture'][1][-1]  #1024
             self.global_pnet = Pnet2Stage(self.hparams['pnet_global_feature_architecture'][0],
                                             self.hparams['pnet_global_feature_architecture'][1],
                                             bn=self.bn, remove_last_activation=remove_last_activation)
@@ -124,9 +105,11 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
             nsample_condition = condition_arch['nsample']#[32, 32, 32, 32]
             feature_dim_condition = condition_arch['feature_dim']#[32, 32, 64, 64, 128]
             mlp_depth_condition = condition_arch['mlp_depth']#3
+            neighbor_def=condition_arch['neighbor_definition']#"radius"
+            #activation=relu, bn=True, attention_setting=dictionary
             self.SA_modules_condition = self.build_SA_model(npoint_condition, radius_condition, 
                                     nsample_condition, feature_dim_condition, mlp_depth_condition, partial_in_fea_dim, False, False,
-                                    neighbor_def=condition_arch['neighbor_definition'],
+                                    neighbor_def=neighbor_def,
                                     activation=self.network_activation, bn=self.bn,
                                     attention_setting=self.attention_setting)
         
@@ -169,7 +152,7 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
         mlp_depth = arch['mlp_depth']#3
         # if first conv, first conv in_fea_dim + encoder_feature_map_dim[0] -> feature_dim[0]
         # if not first conv, mlp[0] = in_fea_dim + encoder_feature_map_dim[0]
-        additional_fea_dim = encoder_feature_map_dim if self.include_local_feature else None
+        additional_fea_dim = encoder_feature_map_dim if self.include_local_feature else None  #[32, 32, 64, 64]
         self.SA_modules = self.build_SA_model(npoint, radius, 
                                 nsample, feature_dim, mlp_depth, 
                                 in_fea_dim+encoder_feature_map_dim[0] if self.include_local_feature else in_fea_dim,
@@ -273,8 +256,8 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
         self.decoder_cond_features = None
         self.global_feature = None
 
-    def forward(self, pointcloud, condition, ts=None, label=None, use_retained_condition_feature=False):
-        r"""
+    def forward(self, pointcloud, condition, ts=None, label=None):
+        """
             Forward pass of the network
 
             Parameters
@@ -288,68 +271,41 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
             condition: (B,M,3 + input_channels) tensor, a condition point cloud.
         """
         if self.include_global_feature or self.include_local_feature:
-            assert not condition is None
-        if self.concate_partial_with_noisy_input:
-            B1,N1,C1 = pointcloud.size()
-            assert C1 == 3
-            pad_zeros = torch.zeros(B1,N1,1, device=pointcloud.device, dtype=pointcloud.dtype)
-            pointcloud = torch.cat([pointcloud, pad_zeros], dim=2) # B,N,4
-            
-            B2,N2,C2 = condition.size()
-            assert C2 in [3,4]
-            if C2==3:
-                pad_ones = torch.ones(B2,N2,1, device=condition.device, dtype=condition.dtype)
-                condition = torch.cat([condition, pad_ones], dim=2) # B,N,4
-            # assert N2 < N1
-            assert B1==B2
-            # pointcloud[:,-N2:,:] = condition
-            pointcloud = torch.cat([pointcloud, condition], dim=1) # B,N1+N2,4
-            condition = None
-
+            assert condition is not None
 
         with torch.no_grad():
-            if self.use_position_encoding:
-                xyz_ori = pointcloud[:,:,0:3] / self.scale_factor
-                xyz_pos_encode = self.pos_encode(xyz_ori)
-                pointcloud = torch.cat([pointcloud, xyz_pos_encode], dim=2)
-
-                if not condition is None:
-                    uvw_ori = condition[:,:,0:3] / self.scale_factor
-                    uvw_pos_encode = self.pos_encode(uvw_ori)
-                    condition = torch.cat([condition, uvw_pos_encode], dim=2)
-
+            #最后三维作为坐标
             if self.attach_position_to_input_feature:
                 xyz_ori = pointcloud[:,:,0:3] / self.scale_factor
                 pointcloud = torch.cat([pointcloud, xyz_ori], dim=2)
 
-                if not condition is None:
+                if condition is not None:
                     uvw_ori = condition[:,:,0:3] / self.scale_factor
                     condition = torch.cat([condition, uvw_ori], dim=2)
                 # in this case, the input pointcloud is of shape (B,N,C)
                 # the output pointcloud is of shape (B,N,C+3)
                 # we want the X not only as position, but also as input feature
-                partial_in_fea_dim = self.partial_in_fea_dim - 3
+                partial_in_fea_dim = self.partial_in_fea_dim - 3  #1
             else:
-                partial_in_fea_dim = self.partial_in_fea_dim
+                partial_in_fea_dim = self.partial_in_fea_dim   #1
             
-            xyz, features = self._break_up_pc(pointcloud)
+            xyz, features = self._break_up_pc(pointcloud)  #用于分离坐标和特征
             xyz = xyz / self.scale_factor
-            if not condition is None:
+            #uvw是条件点云的坐标
+            if condition is not None:
                 uvw, cond_features = self._break_up_pc(condition)
                 uvw = uvw / self.scale_factor
-            # if pointcloud is of shape BN3, then xyz=pointcloud, features=None
-            # if pointcloud is of shape BN(3+C), then xyz is of shape BN3, features is of shape (B,C,N)
 
-        if (not ts is None) and self.hparams['include_t']:
+        if (ts is not None) and self.hparams['include_t']:
             t_emb = calc_t_emb(ts, self.hparams['t_dim'])
             t_emb = self.fc_t1(t_emb)
             t_emb = self.activation(t_emb)
-            t_emb = self.fc_t2(t_emb)
+            t_emb = self.fc_t2(t_emb)  #(B, t_dim*4)
             t_emb = self.activation(t_emb)
         else:
             t_emb = None
 
-        if (not label is None) and self.hparams['include_class_condition']:
+        if (label is not None) and self.hparams['include_class_condition']:
             # label should be 1D tensor of integers of shape (B)
             class_emb = self.class_emb(label) # shape (B, condition_emb_dim)
         else:
@@ -358,31 +314,27 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
         if self.include_global_feature:
             if partial_in_fea_dim> 0:
                 condition_input_fea = condition[:,:,3:(3+partial_in_fea_dim)]
-                global_input = torch.cat([uvw, condition_input_fea], dim=2)
+                global_input = torch.cat([uvw, condition_input_fea], dim=2)  #(B, N, 4)
             else:
                 global_input = uvw
-            if use_retained_condition_feature:
-                if self.global_feature is None:
-                    global_feature = self.global_pnet(global_input.transpose(1,2))
-                    self.global_feature = global_feature.detach().clone()
-                else:
-                    global_feature = self.global_feature
-            else:
-                global_feature = self.global_pnet(global_input.transpose(1,2))
-        
-        if self.include_global_feature:
+            global_feature = self.global_pnet(global_input.transpose(1,2)) #(B, 1024)
             condition_emb = global_feature
             second_condition_emb = class_emb if self.hparams['include_class_condition'] else None
         else:
             condition_emb = class_emb if self.hparams['include_class_condition'] else None
             second_condition_emb = None
 
-        if not condition is None:
+        if condition is not None:
             l_uvw, l_cond_features = [uvw], [cond_features]
         l_xyz, l_features = [xyz], [features]
+
         for i in range(len(self.SA_modules)):
+            """
+            li_uvw: the coordinates of the condition points
+            li_xyz: the coordinates of the noisy points
+            """
             if self.include_local_feature:
-                if (use_retained_condition_feature and not self.encoder_cond_features is None):
+                if (self.encoder_cond_features is not None):
                     mapped_feature = self.encoder_feature_map[i](self.l_uvw[i], self.encoder_cond_features[i], l_xyz[i], subset=False, 
                                     record_neighbor_stats=self.record_neighbor_stats, pooling=self.pooling,
                                     features_at_new_xyz = l_features[i])
@@ -409,7 +361,7 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
             l_features.append(li_features)
         
         if self.include_local_feature:
-            if use_retained_condition_feature and self.l_uvw is None:
+            if self.l_uvw is None:
                 self.l_uvw = l_uvw
                 self.encoder_cond_features = copy.deepcopy(l_cond_features)
         # l_uvw, l_cond_features will be of length len(self.SA_modules_condition)+1
@@ -419,7 +371,7 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
             # i from -1 to -len(self.FP_modules)
             # equivalent to i from len(self.SA_modules)-1 to 0
             if self.include_local_feature:
-                if (use_retained_condition_feature and not self.decoder_cond_features is None):
+                if (self.decoder_cond_features is not None):
                     mapped_feature = self.decoder_feature_map[i](self.l_uvw[i], self.decoder_cond_features[i], l_xyz[i],
                                                 subset=False, record_neighbor_stats=self.record_neighbor_stats, 
                                                 pooling=self.pooling, features_at_new_xyz = l_features[i])
@@ -451,10 +403,10 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
         
         # l_cond_features[0] has not been used
         if self.include_local_feature:
-            if use_retained_condition_feature and self.decoder_cond_features is None:
+            if  self.decoder_cond_features is None:
                 self.decoder_cond_features = copy.deepcopy(l_cond_features)
             
-            if (use_retained_condition_feature and not self.decoder_cond_features is None):
+            if (self.decoder_cond_features is not None):
                 mapped_feature = self.decoder_feature_map[0](self.l_uvw[0], self.decoder_cond_features[0], l_xyz[0],
                                         subset=False, record_neighbor_stats=self.record_neighbor_stats, pooling=self.pooling,
                                         features_at_new_xyz = l_features[0])
@@ -471,8 +423,6 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
         out = self.fc_lyaer(out_feature)
         out = torch.transpose(out, 1,2)
 
-        if self.concate_partial_with_noisy_input:
-            out = out[:,0:N1,:]
         return out
 
     def report_feature_map_neighbor_stats(self, FM_module, module_name='FM_module'):
