@@ -6,10 +6,10 @@ from torch.utils.data import DataLoader
 
 # from pointnet2.data import Indoor3DSemSeg
 # from pointnet2.models.pointnet2_ssg_cls import PointNet2ClassificationSSG
-from pointnet2.models.pointnet2_ssg_sem import PointNet2SemSegSSG, calc_t_emb, swish
+from pointnet2_ssg_sem import PointNet2SemSegSSG, calc_t_emb, swish
 # from pointnet2_ssg_sem import PointNet2SemSegSSG, calc_t_emb, swish
-from pointnet2.models.pnet import Pnet2Stage
-from pointnet2.models.model_utils import get_embedder
+from pnet import Pnet2Stage
+from model_utils import get_embedder
 
 import copy
 import numpy as np
@@ -35,9 +35,7 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
 
         self.attention_setting = self.hparams.get("attention_setting", None)
         # FeatureMapper refers to the feature transfer module
-        if self.FeatureMapper_attention_setting is not None:
-            self.FeatureMapper_attention_setting['use_attention_module'] = (
-                            self.FeatureMapper_attention_setting['add_attention_to_FeatureMapper_module'])
+        self.FeatureMapper_attention_setting = None    #没用的参数
 
         self.global_attention_setting = self.hparams.get('global_attention_setting', None)
 
@@ -78,9 +76,6 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
         self.global_feature_dim = None
         remove_last_activation = self.hparams.get('global_feature_remove_last_activation', True)  #False
         if self.include_global_feature:
-            if self.use_position_encoding:
-                self.hparams['pnet_global_feature_architecture'][0][0] = (
-                    self.hparams['pnet_global_feature_architecture'][0][0])
             self.global_feature_dim = self.hparams['pnet_global_feature_architecture'][1][-1]  #1024
             self.global_pnet = Pnet2Stage(self.hparams['pnet_global_feature_architecture'][0],
                                             self.hparams['pnet_global_feature_architecture'][1],
@@ -313,12 +308,13 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
         
         if self.include_global_feature:
             if partial_in_fea_dim> 0:
-                condition_input_fea = condition[:,:,3:(3+partial_in_fea_dim)]
+                condition_input_fea = condition[:,:,3:(3+partial_in_fea_dim)] #提取第四维？
                 global_input = torch.cat([uvw, condition_input_fea], dim=2)  #(B, N, 4)
             else:
                 global_input = uvw
             global_feature = self.global_pnet(global_input.transpose(1,2)) #(B, 1024)
             condition_emb = global_feature
+            #second_condition_emb即为标签的embedding(B, 128)
             second_condition_emb = class_emb if self.hparams['include_class_condition'] else None
         else:
             condition_emb = class_emb if self.hparams['include_class_condition'] else None
@@ -334,14 +330,15 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
             li_xyz: the coordinates of the noisy points
             """
             if self.include_local_feature:
-                if (self.encoder_cond_features is not None):
+                if (self.encoder_cond_features is not None): #None
                     mapped_feature = self.encoder_feature_map[i](self.l_uvw[i], self.encoder_cond_features[i], l_xyz[i], subset=False, 
                                     record_neighbor_stats=self.record_neighbor_stats, pooling=self.pooling,
                                     features_at_new_xyz = l_features[i])
+                #聚合condition points的特征
                 else:
                     li_uvw, li_cond_features = self.SA_modules_condition[i](l_uvw[i], l_cond_features[i], t_emb=None, condition_emb=None,
                                                             subset=True, record_neighbor_stats=self.record_neighbor_stats,
-                                                            pooling=self.pooling)
+                                                            pooling=self.pooling) #neighbor=False
                     l_uvw.append(li_uvw)
                     l_cond_features.append(li_cond_features)
 
@@ -458,5 +455,65 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
             self.report_feature_map_neighbor_stats(self.encoder_feature_map, module_name='Encoder feature mapper')
             self.report_feature_map_neighbor_stats(self.decoder_feature_map, module_name='Decoder feature mapper')
         # self.report_feature_map_neighbor_stats([self.last_map], module_name='Last mapper')
+
+
+
+
+if __name__ == '__main__':
+    import argparse
+    import wandb
+    import json
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-c', '--config', type=str, 
+                        default='pointnet2/exp_configs/mvp_configs/config_standard_attention_real_3072_partial_points_rot_90_scale_1.2_translation_0.1.json',
+                        help='JSON file for configuration')
+    args = parser.parse_args()
+
+    wandb.login()
+    run = wandb.init(project="load_from_json")
+    with open(args.config,'r') as f:
+        json_config = json.load(f)
+    wandb.init(config=json_config)
+    train_config = wandb.config["train_config"]
+
+
+    pointnet_config = wandb.config["pointnet_config"]     # to define pointnet
+    net = PointNet2CloudCondition(pointnet_config)
+    net.train()
+
+    """
+        transform_X: (B, N, 3) X_t in the forward
+        condition:  (B, N, 3) incomplete points 
+        ts: (B, ) diffusion steps
+        label: (B, ) points label
+    """
+    transformed_X = torch.randn(3, 1024, 3)
+    condition = torch.randn(3, 1024, 3)
+    ts = torch.tensor([4, 8 ,9])
+    label = torch.tensor([1, 2, 3])
+    epsilon_theta = net(transformed_X, condition, ts, label=label)
+   
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
