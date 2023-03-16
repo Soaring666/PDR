@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import warnings
 from torch.autograd import Function
 from typing import *
-from pytorch3d.ops import knn
+import pytorch3d.ops as knn
 
 try:
     import pointnet2_ops._ext as _ext
