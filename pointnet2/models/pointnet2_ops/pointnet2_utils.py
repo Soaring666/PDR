@@ -337,7 +337,7 @@ class QueryAndGroup(nn.Module):
         xyz : torch.Tensor
             xyz coordinates of the features (B, N, 3)
         new_xyz : torch.Tensor
-            centriods (B, npoint, 3)
+            center points (B, npoint, 3)
         features : torch.Tensor
             Descriptors of the features (B, C, N)
         subset : bool
@@ -370,7 +370,6 @@ class QueryAndGroup(nn.Module):
         else:
             raise Exception('Neighbor definition %s is not supported' % self.neighbor_def)
 
-        # pdb.set_trace()
         xyz_trans = xyz.transpose(1, 2).contiguous()
         abs_xyz = grouping_operation(xyz_trans, idx)  # (B, 3, npoint, K), K=nsample
         if (not subset) and self.neighbor_def == 'radius':
@@ -396,7 +395,7 @@ class QueryAndGroup(nn.Module):
             # print('Only use relative position')
         if self.include_center_coordinate:
             new_xyz_trans = new_xyz_trans.expand(-1,-1,-1,grouped_xyz.shape[3]) # (B, 3, npoint, K)
-            grouped_xyz = torch.cat([grouped_xyz, new_xyz_trans], dim=1)
+            grouped_xyz = torch.cat([grouped_xyz, new_xyz_trans], dim=1) # (B, 9, npoint, K)
 
 
         if features is not None:
@@ -410,7 +409,7 @@ class QueryAndGroup(nn.Module):
                 grouped_features = have_neigh*grouped_features + no_neigh*default_feature
 
             if self.use_xyz:
-                new_features = torch.cat([grouped_features, grouped_xyz], dim=1)  
+                new_features = torch.cat([grouped_features, grouped_xyz], dim=1)# (B, 12, npoint, K)  
                 # (B, C + 3, npoint, nsample) or (B, C + 6, npoint, nsample) 
             else:
                 new_features = grouped_features
@@ -556,4 +555,3 @@ if __name__ == '__main__':
                             neighbor_def='nn')
     new_features = grouper(xyz, new_xyz, features=features_at_y, subset=True, record_neighbor_stats=False)
     # dist is of shape (B,N1,K), idx is of shape (B,N1,K), nn is of shape (B,N1,K,3)
-    pdb.set_trace()

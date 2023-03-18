@@ -1,0 +1,85 @@
+{
+    "os": "Linux-5.15.0-67-generic-x86_64-with-glibc2.31",
+    "python": "3.9.0",
+    "heartbeatAt": "2023-03-17T13:53:32.560176",
+    "startedAt": "2023-03-17T13:53:30.687215",
+    "docker": null,
+    "cuda": null,
+    "args": [],
+    "state": "running",
+    "program": "/home/soaring/diffusion/PDR/pointnet2/models/pointnet2_with_pcld_condition.py",
+    "codePath": "models/pointnet2_with_pcld_condition.py",
+    "git": {
+        "remote": null,
+        "commit": null
+    },
+    "email": "Soaring@qq.com",
+    "root": "/home/soaring/diffusion/PDR/pointnet2",
+    "host": "Soaring",
+    "username": "soaring",
+    "executable": "/home/soaring/anaconda3/envs/my_pdr/bin/python",
+    "cpu_count": 4,
+    "cpu_count_logical": 8,
+    "cpu_freq": {
+        "current": 3801.883875,
+        "min": 800.0,
+        "max": 4200.0
+    },
+    "cpu_freq_per_core": [
+        {
+            "current": 3600.0,
+            "min": 800.0,
+            "max": 4200.0
+        },
+        {
+            "current": 4085.124,
+            "min": 800.0,
+            "max": 4200.0
+        },
+        {
+            "current": 3600.0,
+            "min": 800.0,
+            "max": 4200.0
+        },
+        {
+            "current": 4058.351,
+            "min": 800.0,
+            "max": 4200.0
+        },
+        {
+            "current": 3600.0,
+            "min": 800.0,
+            "max": 4200.0
+        },
+        {
+            "current": 3600.0,
+            "min": 800.0,
+            "max": 4200.0
+        },
+        {
+            "current": 3600.0,
+            "min": 800.0,
+            "max": 4200.0
+        },
+        {
+            "current": 3600.0,
+            "min": 800.0,
+            "max": 4200.0
+        }
+    ],
+    "disk": {
+        "total": 915.3232879638672,
+        "used": 155.1477508544922
+    },
+    "gpu": "NVIDIA GeForce GTX 1080 Ti",
+    "gpu_count": 1,
+    "gpu_devices": [
+        {
+            "name": "NVIDIA GeForce GTX 1080 Ti",
+            "memory_total": 11811160064
+        }
+    ],
+    "memory": {
+        "total": 15.584732055664062
+    }
+}

@@ -248,7 +248,7 @@ class _PointnetSAModuleBase(nn.Module):
         assert self.npoint is not None
         furthest_point_idx = pointnet2_utils.furthest_point_sample(xyz, self.npoint)
         new_xyz = pointnet2_utils.gather_operation(xyz_flipped, furthest_point_idx).transpose(1, 2).contiguous()
-        # shape (B, npoint, 3) 中心点
+        # new_xyz: shape (B, npoint, 3) 中心点
         if self.use_attention_module:
             new_xyz_feat = pointnet2_utils.gather_operation(features, furthest_point_idx)
             # shape (B, C, npoint), features at new_xyz
@@ -257,7 +257,8 @@ class _PointnetSAModuleBase(nn.Module):
         for i in range(len(self.groupers)):
             grouped_features, count = self.groupers[i](xyz, new_xyz, features, subset=subset, 
                                 record_neighbor_stats=record_neighbor_stats, return_counts=True)  # (B, C+3, npoint, nsample)
-            
+            #grouped_features: (B, 13, 1024, 32)
+            #count: (B, 1024)
             t_emb = t_emb if self.include_t else None
             condition_emb = condition_emb if self.include_condition else None
             second_condition_emb = second_condition_emb if self.include_second_condition else None

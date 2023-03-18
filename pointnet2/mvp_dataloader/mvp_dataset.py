@@ -218,13 +218,15 @@ if __name__ == '__main__':
     aug_args = {'pc_augm_scale':1.5, 'pc_augm_rot':True, 'pc_rot_scale':30.0, 'pc_augm_mirror_prob':0.5, 'pc_augm_jitter':False, 'translation_magnitude': 0.1}
     aug_args =  False
     include_generated_samples=False
+    path = os.getcwd()
+    data_dir = os.path.join(path, 'mvp_dataloader/data/mvp_dataset') 
     # generated_sample_path='generated_samples/T1000_betaT0.02_shape_completion_mirror_rot_60_scale_1.2_translation_0.05/ckpt_623999'
-    dataset = ShapeNetH5('E:/A-CODE/3D点云/PDR/pointnet2/mvp_dataloader/data/mvp_dataset', train=False, npoints=2048, novel_input=True, novel_input_only=False,
+    dataset = ShapeNetH5(data_dir=data_dir, train=False, npoints=2048, novel_input=True, novel_input_only=False,
                             augmentation=aug_args, scale=1,
-                            random_subsample=True, num_samples=100000,
+                            random_subsample=True, num_samples=1000000,
                             include_generated_samples=include_generated_samples, 
                             generated_sample_path=None,
-                            use_mirrored_partial_input=False, number_partial_points=3072,
+                            use_mirrored_partial_input=True, number_partial_points=3072,
                             load_pre_computed_XT=False, T_step=10, 
                             XT_folder=None,
                             append_samples_to_last_rank=False,

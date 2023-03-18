@@ -345,9 +345,9 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
 
                     mapped_feature = self.encoder_feature_map[i](l_uvw[i], l_cond_features[i], l_xyz[i], subset=False, 
                                     record_neighbor_stats=self.record_neighbor_stats, pooling=self.pooling,
-                                    features_at_new_xyz = l_features[i])
+                                    features_at_new_xyz = l_features[i])    #(B, 32, 2048)
 
-                input_feature = torch.cat([ mapped_feature, l_features[i] ], dim=1)
+                input_feature = torch.cat([ mapped_feature, l_features[i] ], dim=1)   #(B, 35, 2048)
             else:
                 input_feature = l_features[i]
 
@@ -361,7 +361,7 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
         if self.include_local_feature:
             if self.l_uvw is None:
                 self.l_uvw = l_uvw
-                self.encoder_cond_features = copy.deepcopy(l_cond_features)
+                self.encoder_cond_features = l_cond_features
         # l_uvw, l_cond_features will be of length len(self.SA_modules_condition)+1
         # the last condition feature l_cond_features[-1] is not used in the encoder
 
@@ -402,7 +402,7 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
         # l_cond_features[0] has not been used
         if self.include_local_feature:
             if  self.decoder_cond_features is None:
-                self.decoder_cond_features = copy.deepcopy(l_cond_features)
+                self.decoder_cond_features = l_cond_features
             
             if (self.decoder_cond_features is not None):
                 mapped_feature = self.decoder_feature_map[0](self.l_uvw[0], self.decoder_cond_features[0], l_xyz[0],
@@ -464,57 +464,55 @@ if __name__ == '__main__':
     import argparse
     import wandb
     import json
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--config', type=str, 
-                        default='pointnet2/exp_configs/mvp_configs/config_standard_attention_real_3072_partial_points_rot_90_scale_1.2_translation_0.1.json',
-                        help='JSON file for configuration')
-    args = parser.parse_args()
+    import os
 
     wandb.login()
     run = wandb.init(project="load_from_json")
-    with open(args.config,'r') as f:
+
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-c', '--config', type=str, 
+                        default='exp_configs/mvp_configs/config_standard_attention_real_3072_partial_points_rot_90_scale_1.2_translation_0.1.json',
+                        help='JSON file for configuration')
+    args = parser.parse_args()
+
+    path = os.getcwd()
+    config_path = os.path.join(path,'pointnet2', args.config)
+    with open(config_path,'r') as f:
         json_config = json.load(f)
     wandb.init(config=json_config)
     train_config = wandb.config["train_config"]
 
-
+    device = 'cuda'
     pointnet_config = wandb.config["pointnet_config"]     # to define pointnet
-    net = PointNet2CloudCondition(pointnet_config)
-    net.train()
+    net = PointNet2CloudCondition(pointnet_config).to(device)
 
-    """
-        transform_X: (B, N, 3) X_t in the forward
-        condition:  (B, N, 3) incomplete points 
-        ts: (B, ) diffusion steps
-        label: (B, ) points label
-    """
-    transformed_X = torch.randn(3, 1024, 3)
-    condition = torch.randn(3, 1024, 3)
-    ts = torch.tensor([4, 8 ,9])
-    label = torch.tensor([1, 2, 3])
-    epsilon_theta = net(transformed_X, condition, ts, label=label)
-   
-        
+    log = False
+    train = True
+    if train:
+        net.train()
+        """
+            transform_X: (B, N, 3) X_t in the forward
+            condition:  (B, N, 3) incomplete points 
+            ts: (B, ) diffusion steps
+            label: (B, ) points label
+        """
+        transformed_X = torch.randn(3, 2048, 3).to(device)
+        print(transformed_X.device)
+        condition = torch.randn(3, 3072, 4).to(device)
+        ts = torch.tensor([4, 8 ,9]).to(device)
+        label = torch.tensor([1, 2, 3]).to(device)
+        epsilon_theta = net(transformed_X, condition, ts, label=label)
 
+    if log:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.setLevel(level = logging.INFO)
+        handler = logging.FileHandler("log.txt")
+        handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        logger.info(net)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    
