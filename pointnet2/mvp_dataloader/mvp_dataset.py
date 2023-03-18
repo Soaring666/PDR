@@ -221,7 +221,7 @@ if __name__ == '__main__':
     # generated_sample_path='generated_samples/T1000_betaT0.02_shape_completion_mirror_rot_60_scale_1.2_translation_0.05/ckpt_623999'
     dataset = ShapeNetH5('E:/A-CODE/3D点云/PDR/pointnet2/mvp_dataloader/data/mvp_dataset', train=False, npoints=2048, novel_input=True, novel_input_only=False,
                             augmentation=aug_args, scale=1,
-                            random_subsample=True, num_samples=1000,
+                            random_subsample=True, num_samples=100000,
                             include_generated_samples=include_generated_samples, 
                             generated_sample_path=None,
                             use_mirrored_partial_input=False, number_partial_points=3072,

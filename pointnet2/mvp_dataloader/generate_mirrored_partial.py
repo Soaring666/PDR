@@ -3,34 +3,23 @@ import numpy as np
 import torch.utils.data as data
 import h5py
 import os
-import random
-import copy
 import sys
-import warnings
-
+from data_utils.mirror_partial import mirror_and_concat
 sys.path.insert(0, os.path.dirname(__file__))
-from mvp_data_utils import augment_cloud
 from mvp_dataset import ShapeNetH5
 
 
 if __name__ == '__main__':
-    import pdb
-    import pickle
-    sys.path.append('../')
-    from data_utils.mirror_partial import mirror_and_concat
-    # aug_args = {'pc_augm_scale':0, 'pc_augm_rot':False, 'pc_rot_scale':30.0, 'pc_augm_mirror_prob':0.5, 'pc_augm_jitter':False}
-    # include_generated_samples=True 
-    train = False
-    benchmark = True
-    data_dir = './data/mvp_dataset'
+    train = True
+    path = os.getcwd()
+    data_dir = 'mvp_dataloader/data/mvp_dataset'
     mirror_save_dir = 'mirror_and_concated_partial'
-    os.makedirs(os.path.join(data_dir, mirror_save_dir), exist_ok=True)
+    os.makedirs(os.path.join(path, data_dir, mirror_save_dir), exist_ok=True)
     # generated_sample_path='generated_samples/T1000_betaT0.02_shape_completion_no_class_condition_scale_1_no_random_replace_partail_with_complete/ckpt_1403999'
-    generated_sample_path = None
-    dataset = ShapeNetH5(data_dir, train=train, benchmark = benchmark, npoints=2048, novel_input=True, novel_input_only=False,
+    dataset = ShapeNetH5(data_dir, train=train, npoints=2048, novel_input=True, novel_input_only=False,
                             random_replace_partial_with_complete_prob=0, augmentation=False, scale=0.5,
                             random_subsample=False, num_samples=100000,
-                            include_generated_samples=False, generated_sample_path=generated_sample_path)
+                            include_generated_samples=False, generated_sample_path=None)
     
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=128, shuffle=False, num_workers=4)
     mirror_concat = None
@@ -41,7 +30,7 @@ if __name__ == '__main__':
             label, partial, complete = data
             print('index %d label %s partail shape %s [%.3f, %.3f] complete shape %s [%.3f, %.3f]' % (
                 i, label.shape, partial.shape, partial.min(), partial.max(), complete.shape, complete.min(), complete.max(),))
-            concat = mirror_and_concat(partial, axis=2, num_points=[2048, 3072])
+            concat = mirror_and_concat(partial, axis=2, num_points=[2048, 3072])  #([B, 4096, 4], [B, 2048, 4], [B, 3072, 4])
             concat = [con.detach().cpu().numpy() for con in concat]
             if mirror_concat is None:
                 mirror_concat = concat
