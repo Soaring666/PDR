@@ -43,7 +43,7 @@ def rescale(x):
 
 def find_max_epoch(path, ckpt_name, mode='max', return_num_ckpts=False):
     """
-    Find maximum epoch/iteration in path, formatted ${ckpt_name}_${n_iter}.pkl
+    Find maximum epoch/iteration in path, formatted ${ckpt_name}_${n_epoch}.pkl
 
     Parameters:
     path (str):         checkpoint path
@@ -52,33 +52,32 @@ def find_max_epoch(path, ckpt_name, mode='max', return_num_ckpts=False):
         for best mode, we find the epoch with the lowest cd loss on test set
     
     Returns:
-    maximum epoch/iteration, -1 if there is no (valid) checkpoint
+    the number of maximum epoch/iteration, -1 if there is no (valid) checkpoint
     """
 
     files = os.listdir(path)
-    # epoch = -1
-    iterations = []
+    epoch = []
     for f in files:
         if len(f) <= len(ckpt_name) + 5:
             continue
         if f[:len(ckpt_name)] == ckpt_name and f[-4:]  == '.pkl' and ('best' not in f):
             number = f[len(ckpt_name)+1:-4]
-            iterations.append(int(number))
+            epoch.append(int(number))
     if return_num_ckpts:
-        num_ckpts = len(iterations)
-    if len(iterations) == 0:
+        num_ckpts = len(epoch)
+    if len(epoch) == 0:
         if return_num_ckpts:
             return -1, num_ckpts
         return -1
     if mode == 'max':
         if return_num_ckpts:
-            return max(iterations), num_ckpts
-        return max(iterations)
+            return max(epoch), num_ckpts
+        return max(epoch)
     elif mode == 'all':
-        iterations = sorted(iterations, reverse=True)
+        epoch = sorted(epoch, reverse=True)
         if return_num_ckpts:
-            return iterations, num_ckpts
-        return iterations
+            return epoch, num_ckpts
+        return epoch
     elif mode == 'best':
         eval_file_name = os.path.join(path, '../../eval_result/gathered_eval_result.pkl')
         handle = open(eval_file_name, 'rb')
@@ -210,12 +209,9 @@ def sampling(net, size, diffusion_hyperparams, print_every_n_steps=100, label=0,
     if return_multiple_t_slices:
         result_slices = {}
     x = std_normal(size)
-    # if not mean_shape is None:
-    #     x = x + mean_shape * scale_factor # we assume mean_shape is in the scale of [-1,1]
-    if not label is None and isinstance(label, int):
+    if label is not None and isinstance(label, int):
         label = torch.ones(size[0]).long().cuda() * label
     if use_a_precomputed_XT:
-        # assert mean_shape is None
         x = XT + Sigma[step] * std_normal(size)
         start_iter = step-1
     else:
@@ -227,12 +223,6 @@ def sampling(net, size, diffusion_hyperparams, print_every_n_steps=100, label=0,
             if t % print_every_n_steps == 0:
                 print('reverse step: %d' % t, flush=True)
             diffusion_steps = (t * torch.ones((size[0],))).cuda()  # use the corresponding reverse step
-            # input_x = torch.cat([x,x], dim=2)
-            # pdb.set_trace()
-            # x= x/1.01
-            # if (x.max()-x.min()) > 2 and T>100:
-            #     x= x/1.01
-            # pdb.set_trace()
             if condition is None:
                 epsilon_theta = net(x, ts=diffusion_steps, label=label)  # predict \epsilon according to \epsilon_\theta
             else:
@@ -241,12 +231,11 @@ def sampling(net, size, diffusion_hyperparams, print_every_n_steps=100, label=0,
                 print('t %d epsilon_theta max %.2f min %.2f' % (t, epsilon_theta.max(), epsilon_theta.min()))
             sqrt_Alpha = torch.sqrt(Alpha[t])
             x = (x - (1-Alpha[t])/torch.sqrt(1-Alpha_bar[t]) * epsilon_theta) / sqrt_Alpha  # update x_{t-1} to \mu_\theta(x_t)
-            # if not mean_shape is None:
-            #     x = x + (1-1/sqrt_Alpha) * mean_shape * scale_factor
-            if return_multiple_t_slices and t in t_slices:
-                result_slices[t] = x #.detach().cpu().numpy() # the slices are without noises
             if t > 0:
                 x = x + Sigma[t] * std_normal(size)  # add the variance term to x_{t-1}
+            if return_multiple_t_slices and t in t_slices:
+                result_slices[t] = x 
+
     if not condition is None:
         net.reset_cond_features()
     if return_multiple_t_slices:
