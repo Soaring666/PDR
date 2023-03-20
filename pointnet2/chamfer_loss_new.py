@@ -256,16 +256,14 @@ class Chamfer_F1(nn.Module):
         return cd_p, cd_t, f1
 
 if __name__ == '__main__':
-    import pdb
+    import copy
     B = 32
     N = 1024
     C = 3
-    # device = torch.device('cuda:1')
-    # torch.cuda.set_device(1)
-    xyz1 = torch.rand(B,N,C)
-    xyz1.requires_grad = True
-    xyz2 = torch.rand(B,N,C)
-    xyz2.requires_grad = True
+    xyz1 = torch.randn(B,N,C)
+    xyz2 = torch.randn(B,N,C)
+    xyz3 = copy.deepcopy(xyz1)
+    xyz3[0:32, 0:10, 0:1] = 1
 
     d1, d2, _ = chamfer_distance(
     xyz1,
@@ -291,9 +289,13 @@ if __name__ == '__main__':
     point_reduction= "mean",
     )
 
-    pdb.set_trace()
 
     chamfer_f1 = Chamfer_F1()
 
-    cd_p, cd_t, f1 = chamfer_f1(xyz1, xyz2)
+    cd_p, cd_t, f1 = chamfer_f1(xyz1, xyz3)
 
+    cd_loss = cd_t.mean().detach().cpu().item()
+    f1_loss = f1.mean().detach().cpu().item()
+    print(cd_t)
+    # print(f1_loss)
+    # print(torch.__version__)

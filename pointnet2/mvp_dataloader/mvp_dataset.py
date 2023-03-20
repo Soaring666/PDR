@@ -15,32 +15,34 @@ from mvp_data_utils import augment_cloud
 
 class ShapeNetH5(data.Dataset):
     def __init__(self, data_dir, train=True, npoints=2048, novel_input=True, novel_input_only=False,
-                        scale=1, rank=0, world_size=1, random_subsample=False, num_samples=1000,
+                        scale=1, random_sample_nums=None,
                         augmentation=False, return_augmentation_params=False,
                         include_generated_samples=False, generated_sample_path=None,
                         randomly_select_generated_samples=False, # randomly select a trial from multi trial generations
-                        use_mirrored_partial_input=False, number_partial_points=2048,
+                        use_mirrored_partial_input=False,
                         load_pre_computed_XT=False, T_step=100, XT_folder=None,
-                        append_samples_to_last_rank=True,
-                        
                         ):
+        """
+        params:
+            novel_input_only: 只使用novel points
+            novel_input: 把本来的和novel的cat起来使用,如果为False,则既不用mirror也不加novel
+            use_mirrored_partial_input: 需要设置novel_input为True, novel_input_only为False
+        """
         self.return_augmentation_params = return_augmentation_params
         self.use_mirrored_partial_input = use_mirrored_partial_input
-        # if use_mirrored_partial_input or load_pre_computed_XT:
-        #     assert novel_input and (not novel_input_only)
-
-        if use_mirrored_partial_input:
-            self.mirrored_input_path = ('%s/mirror_and_concated_partial/mvp_train_input_mirror_and_concat_%dpts.h5' % 
-                                (data_dir, number_partial_points))  
-        if train:
+        self.npoints = npoints
+        self.train = train # controls the trainset and testset
+        self.augmentation = augmentation # augmentation could be a dict or False
+        self.random_sample_nums = random_sample_nums
+        
+        if self.train:
+            self.mirrored_input_path = ('%s/mirror_and_concated_partial/mvp_train_input_mirror_and_concat_3072pts.h5' % 
+                                data_dir) if use_mirrored_partial_input else None 
             self.input_path = '%s/mvp_train_input.h5' % data_dir
             self.gt_path = '%s/mvp_train_gt_%dpts.h5' % (data_dir, npoints)
         else:
             self.input_path = '%s/mvp_test_input.h5' % data_dir
             self.gt_path = '%s/mvp_test_gt_%dpts.h5' % (data_dir, npoints)
-        self.npoints = npoints
-        self.train = train # controls the trainset and testset
-        self.augmentation = augmentation # augmentation could be a dict or False
 
         # load partial point clouds and their labels
         input_file = h5py.File(self.input_path, 'r')
@@ -113,32 +115,31 @@ class ShapeNetH5(data.Dataset):
                 mirrored_file.close()
             else:
                 self.input_data = np.concatenate((self.input_data, self.novel_input_data), axis=0)
+            
+            #只取训练集的前300张飞机图进行训练看效果
+            self.input_data = self.input_data[0:500, :, :]
             self.gt_data = np.concatenate((self.gt_data, self.novel_gt_data), axis=0)
             self.labels = np.concatenate((self.labels, self.novel_labels), axis=0)
 
         # randomly subsample the datasets, because we may want to only test the trained DDPM on a fraction of the 
         # dataset to save time 
-        self.random_subsample = random_subsample
-        if random_subsample:
-            if num_samples < self.input_data.shape[0]:
-                #partial_to_complete_index就是gt_data
-                partial_to_complete_index = np.arange(self.gt_data.shape[0])  #(B,)
-                partial_to_complete_index = np.repeat(partial_to_complete_index[:,np.newaxis], 26, axis=1)  #(B, 26)
-                partial_to_complete_index = partial_to_complete_index.reshape((self.gt_data.shape[0]*26))  #(B*26,)
-                index = list(range(self.input_data.shape[0]))
-                idx = random.sample(index, num_samples)
-                idx = np.array(idx) 
-                self.input_data = self.input_data[idx]
-                self.labels = self.labels[idx]
-                self.partial_to_complete_index = partial_to_complete_index[idx]
-                if self.include_generated_samples:
-                    self.generated_sample = self.generated_sample[idx]
-                if self.load_pre_computed_XT:
-                    self.generated_XT = self.generated_XT[idx]
-            else:
-                self.random_subsample = False
-                warnings.warn("The provided num_samples (%d) is not less than the number of shapes (%d). random_subsample will not be performed"
-                                % (num_samples, self.input_data.shape[0]))
+        if self.random_sample_nums is not None: 
+            #partial_to_complete_index就是gt_data
+            partial_to_complete_index = np.arange(self.gt_data.shape[0])  #(B,)
+            partial_to_complete_index = np.repeat(partial_to_complete_index[:,np.newaxis], 26, axis=1)  #(B, 26)
+            partial_to_complete_index = partial_to_complete_index.reshape((self.gt_data.shape[0]*26))  #(B*26,)
+            index = list(range(self.input_data.shape[0]))
+            idx = random.sample(index, self.random_sample_nums)
+            idx = np.array(idx) 
+            self.input_data = self.input_data[idx]
+            self.labels = self.labels[idx]
+            self.partial_to_complete_index = partial_to_complete_index[idx]
+            if self.include_generated_samples:
+                self.generated_sample = self.generated_sample[idx]
+            if self.load_pre_computed_XT:
+                self.generated_XT = self.generated_XT[idx]
+        else:
+            warnings.warn("it will sample all")
 
         self.scale = scale
         # shapes in mvp dataset range from -0.5 to 0.5
@@ -174,8 +175,7 @@ class ShapeNetH5(data.Dataset):
         # it will change the original data if we do not deep copy
         result = {}
         result['partial'] = copy.deepcopy(self.input_data[index])
-        # if not self.benchmark:
-        if self.random_subsample:
+        if self.random_sample_nums is not None:
             gt_idx = self.partial_to_complete_index[index]
         else:
             gt_idx = index // 26
@@ -216,23 +216,23 @@ class ShapeNetH5(data.Dataset):
 
 if __name__ == '__main__':
     aug_args = {'pc_augm_scale':1.5, 'pc_augm_rot':True, 'pc_rot_scale':30.0, 'pc_augm_mirror_prob':0.5, 'pc_augm_jitter':False, 'translation_magnitude': 0.1}
-    aug_args =  False
+    aug_args = False
     include_generated_samples=False
     path = os.getcwd()
     data_dir = os.path.join(path, 'mvp_dataloader/data/mvp_dataset') 
     # generated_sample_path='generated_samples/T1000_betaT0.02_shape_completion_mirror_rot_60_scale_1.2_translation_0.05/ckpt_623999'
-    dataset = ShapeNetH5(data_dir=data_dir, train=False, npoints=2048, novel_input=True, novel_input_only=False,
+    dataset = ShapeNetH5(data_dir=data_dir, train=True, npoints=2048, novel_input=True, novel_input_only=False,
                             augmentation=aug_args, scale=1,
-                            random_subsample=True, num_samples=1000000,
+                            random_sample_nums=None,
                             include_generated_samples=include_generated_samples, 
                             generated_sample_path=None,
-                            use_mirrored_partial_input=True, number_partial_points=3072,
+                            use_mirrored_partial_input=False,
                             load_pre_computed_XT=False, T_step=10, 
                             XT_folder=None,
-                            append_samples_to_last_rank=False,
                             return_augmentation_params=False)
  
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=128, shuffle=False, num_workers=4)
+    print(len(dataloader))
     
     for i, data in enumerate(dataloader):
         label, partial, complete = data['label'], data['partial'], data['complete']

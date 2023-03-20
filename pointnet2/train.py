@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 
-from dataset import get_dataloader
+from mvp_dataloader.mvp_dataset import ShapeNetH5
 from util import find_max_epoch, print_size
 from util import training_loss, calc_diffusion_hyperparams
 from scheduler import QuantityScheduler
@@ -30,31 +30,23 @@ def evaluate_per_rank(net, rank, num_gpus, root_directory, local_path, n_iter,
                     noise_magnitude_added_to_gt=0, add_noise_to_generated_for_refine_exp=False):
     net.eval()
     torch.cuda.empty_cache()
-    phase = 'cascade_test' if dataset == 'shapenet_chunk' else 'val'
-    if dataset in ['shapenet', 'shapenet_pytorch', 'shapenet_chunk', 'partnet']:
-        testloader = get_dataloader(trainset_config, phase=phase, rank=rank, world_size=num_gpus,
-                                    append_samples_to_last_rank=False)
-    elif dataset in ['mvp_dataset', 'mvp40']:
-        testloader = get_dataloader(trainset_config, phase=phase, rank=rank, world_size=num_gpus, 
-                            random_subsample=True, num_samples=int(num_samples_tested_in_trainset/num_gpus),
-                            append_samples_to_last_rank=False)
-    else:
-        raise Exception('%s do not supported evaluation yet' % dataset)
+    phase = 'val'
+    testloader = get_dataloader(trainset_config, phase=phase, rank=rank, world_size=num_gpus, 
+                        random_subsample=True, num_samples=int(num_samples_tested_in_trainset/num_gpus),
+                        append_samples_to_last_rank=False)
 
-    point_upsample_factor = pointnet_config.get('point_upsample_factor', 1) 
-    include_displacement_center_to_final_output = pointnet_config.get('include_displacement_center_to_final_output', False) 
+    point_upsample_factor = pointnet_config.get('point_upsample_factor', 1)  #1
+    include_displacement_center_to_final_output = pointnet_config.get('include_displacement_center_to_final_output', False)  #False
     
     with torch.no_grad():
         CD_loss, EMD_loss, meta, metrics = evaluate(net, testloader, 
-                        diffusion_hyperparams, print_every_n_steps=200, parallel=False,
+                        diffusion_hyperparams, 
                         dataset=dataset, scale=scale, task=task, refine_output_scale_factor=refine_output_scale_factor,
                         max_print_nums=10, point_upsample_factor=point_upsample_factor,
                         include_displacement_center_to_final_output=include_displacement_center_to_final_output,
-                        compute_emd=compute_emd, noise_magnitude_added_to_gt=noise_magnitude_added_to_gt,
+                        noise_magnitude_added_to_gt=noise_magnitude_added_to_gt,
                         add_noise_to_generated_for_refine_exp=add_noise_to_generated_for_refine_exp,
-                        return_all_metrics=True)
-    if dataset=='shapenet':
-        testloader.kill_data_processes()
+                        )
     torch.cuda.empty_cache()
     save_dir = os.path.join(root_directory, local_path, 'eval_result')
     os.makedirs(save_dir, exist_ok=True)
@@ -66,7 +58,7 @@ def evaluate_per_rank(net, rank, num_gpus, root_directory, local_path, n_iter,
                     'cd_distance': metrics['cd_distance'], 
                     'emd_distance': metrics['emd_distance'],
                     'cd_p': metrics['cd_p'], 'f1': metrics['f1'],
-                    'avg_cd':CD_loss, 'avg_emd':EMD_loss}, handle)
+                    'avg_cd':CD_loss, 'avg_emd':EMD_loss}, handle)  #序列化字典并写入handle中
     handle.close()
     print('\nTestset evaluation result of the mini-batch samples from rank %d:' % rank)
     print('have saved eval result at iter %d for rank %d to %s' % (n_iter, rank, save_file))
@@ -88,8 +80,6 @@ def evaluate_per_rank(net, rank, num_gpus, root_directory, local_path, n_iter,
                             compute_emd=compute_emd, noise_magnitude_added_to_gt=noise_magnitude_added_to_gt,
                             add_noise_to_generated_for_refine_exp=add_noise_to_generated_for_refine_exp,
                             return_all_metrics=True)
-        if dataset=='shapenet':
-            testloader.kill_data_processes()
         torch.cuda.empty_cache()
         save_dir = os.path.join(root_directory, local_path, 'eval_result')
         os.makedirs(save_dir, exist_ok=True)
@@ -277,8 +267,8 @@ def split_data(data, dataset, conditioned_on_cloud, include_class_condition,
     else:
         return X, condition, label
 
-def train(num_gpus, config_file, rank, group_name, dataset, root_directory, output_directory, 
-          tensorboard_directory, ckpt_iter, n_epochs, epochs_per_ckpt, iters_per_logging,
+def train(config_file, rank, group_name, dataset, root_directory, output_directory, 
+          tensorboard_directory, ckpt_epoch, n_epochs, epochs_per_ckpt, iters_per_logging,
           learning_rate, loss_type, conditioned_on_cloud, random_shuffle_points = True,
           eval_start_epoch = 0, eval_per_ckpt = 1, task='completion', only_save_the_best_model=False,
           compute_emd=True, split_dataset_to_multi_gpus=False,
@@ -291,17 +281,15 @@ def train(num_gpus, config_file, rank, group_name, dataset, root_directory, outp
     config_file:                    path to the config file
     output_directory (str):         save model checkpoints to this path
     tensorboard_directory (str):    save tensorboard events to this path
-    ckpt_iter (int or 'max'):       the pretrained checkpoint to be loaded; 
-                                    automitically selects the maximum iteration if 'max' is selected
+    ckpt_epoch (int or 'max'):      the pretrained checkpoint to be loaded; 
+                                    automitically selects the maximum epoch if 'max' is selected
     n_epochs (int):                 number of epochs to train
     epochs_per_ckpt (int):          number of epochs to save checkpoint
     iters_per_logging (int):        number of iterations to save training log and compute validation loss, default is 100
     learning_rate (float):          learning rate
     """
-    assert task in ['completion', 'refine_completion']
     if task == 'completion' and only_save_the_best_model:
         raise Exception('To train the diffusion model, we should save every checkpoint')
-    # generate experiment (local) path
     local_path = "T{}_betaT{}".format(diffusion_config["T"], diffusion_config["beta_T"])
     local_path = local_path + '_' + pointnet_config['model_name']
     if task == 'refine_completion':
@@ -310,28 +298,26 @@ def train(num_gpus, config_file, rank, group_name, dataset, root_directory, outp
         exp_name = os.path.join(*exp_name_split)
         local_path = os.path.join(local_path, exp_name)
 
-    # Get shared output_directory ready
     output_directory = os.path.join(root_directory, local_path, output_directory)
-    if True:
-        if not os.path.isdir(output_directory):
-            os.makedirs(output_directory)
-            os.chmod(output_directory, 0o775)
-        try:
-            copyfile(config_file, os.path.join(output_directory, os.path.split(config_file)[1]))
-        except:
-            print('The two files are the same, no need to copy')
-            
-        print("output directory is", output_directory, flush=True)
-        print("Config file has been copied from %s to %s" % (config_file, 
-            os.path.join(output_directory, os.path.split(config_file)[1])), flush=True)
-    
+    if not os.path.isdir(output_directory):
+        os.makedirs(output_directory)
+        os.chmod(output_directory, 0o775)
+    try:
+        copyfile(config_file, os.path.join(output_directory, os.path.split(config_file)[1]))
+    except:
+        print('The two files are the same, no need to copy')
+        
+    print("output directory is", output_directory, flush=True)
+    print("Config file has been copied from %s to %s" % (config_file, 
+        os.path.join(output_directory, os.path.split(config_file)[1])), flush=True)
+
     # map diffusion hyperparameters to gpu
     for key in diffusion_hyperparams:
         if key != "T":
             diffusion_hyperparams[key] = diffusion_hyperparams[key].cuda()
 
     # load training data
-    trainloader = get_dataloader(trainset_config)
+    dataset = ShapeNetH5(**trainset_config)
     print('Data loaded')
     
     net = PointNet2CloudCondition(pointnet_config).cuda()
@@ -393,28 +379,10 @@ def train(num_gpus, config_file, rank, group_name, dataset, root_directory, outp
     best_cd = None
 
     # n_iter from 0 to n_iters if we train the model from sratch
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=128, shuffle=False, num_workers=4)
+    for i, data in enumerate(dataloader):
+        label, condition, X = data['label'], data['partial'], data['complete']
     while n_iter < n_iters + 1:
-        if trainset_config.get('randomly_select_generated_samples', False):
-            # in this case, we are training the refinement network
-            # we need to reload the dataset every epoch, 
-            # we randomly select one trial from the multi-trial coarse point clouds generated by the trained DDPM
-            if split_dataset_to_multi_gpus and num_gpus > 1:
-                trainloader = get_dataloader(trainset_config, rank=rank, world_size=num_gpus, append_samples_to_last_rank=True)
-            else:
-                trainloader = get_dataloader(trainset_config)
-        for data in trainloader: 
-            # load data
-            if task == 'refine_completion':
-                X, condition, label, generated = split_data(data, dataset, conditioned_on_cloud, 
-                                    pointnet_config.get('include_class_condition', False), 
-                                    random_shuffle_points, task=task,
-                                    random_subsample_partial_points=random_subsample_partial_points)
-            else:
-                #1.将数据放到cuda中 2.打乱数据  （看起来没什么用）
-                X, condition, label = split_data(data, dataset, conditioned_on_cloud, 
-                                    pointnet_config.get('include_class_condition', False), 
-                                    random_shuffle_points, task=task,
-                                    random_subsample_partial_points=random_subsample_partial_points)
             optimizer.zero_grad()
             
             scale = trainset_config['scale'] # scale of the shapes from the dataset
@@ -440,7 +408,7 @@ def train(num_gpus, config_file, rank, group_name, dataset, root_directory, outp
                 refined_X = refined_X / scale / 2
                 X = X / scale / 2
                 cd_loss_type = (refine_config.get('cd_loss_type', 'cd_t') if task == 'refine_completion' 
-                                    else denoise_config['cd_loss_type'])
+                                    else None)
                
                 if cd_loss_type == 'cd_t':
                     loss_idx = 1
@@ -494,7 +462,7 @@ def train(num_gpus, config_file, rank, group_name, dataset, root_directory, outp
 
                 # evaluate the model at the checkpoint
                 if n_iter >= eval_start_iter and num_ckpts % eval_per_ckpt==0:
-                    test_trainset_during_eval = trainset_config.get('test_trainset_during_eval', False)
+                    test_trainset_during_eval = trainset_config.get('test_trainset_during_eval', False)  #True
                     if dataset in ['shapenet', 'shapenet_pytorch', 'shapenet_chunk', 'partnet']:
                         # these datasets have a small testset, therefore we could test the whole test set during training
                         # but they have a large training set, we only test num_samples_tested_in_trainset samples for the training set
@@ -502,7 +470,7 @@ def train(num_gpus, config_file, rank, group_name, dataset, root_directory, outp
                     elif dataset == 'mvp_dataset' or dataset == 'mvp40':
                         # these two datasets have too many samples even in the test set
                         # we only evalute num_samples_tested for both the training set and test set
-                        num_samples_tested_in_trainset = trainset_config['num_samples_tested']
+                        num_samples_tested_in_trainset = trainset_config['num_samples_tested']  #1600
                     else:
                         raise Exception('%s dataset is not supported' % dataset)
                     
