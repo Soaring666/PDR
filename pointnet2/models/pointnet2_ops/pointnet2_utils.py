@@ -318,7 +318,16 @@ class QueryAndGroup(nn.Module):
 
     def __init__(self, radius, nsample, use_xyz=True, include_abs_coordinate=False, 
                         include_center_coordinate=False, neighbor_def='radius'):
-        # type: (QueryAndGroup, float, int, bool) -> None
+        '''
+        参数说明
+            radius: 半径
+            nsample: 半径中邻近点个数
+            use_xyz: 在特征中加入坐标信息
+            include_abs_coordinate: 计算邻近点位置信息的时候不仅计算和中心点的相对位置差，同时加入邻近点的绝对位置
+            include_center_coordinates: 计算邻近点位置信息的时候再额外加入中心点的位置信息
+            neighbor_def: 计算邻近点的方式
+        '''
+
         super(QueryAndGroup, self).__init__()
         self.radius, self.nsample, self.use_xyz = radius, nsample, use_xyz
         self.include_abs_coordinate = include_abs_coordinate
@@ -330,7 +339,6 @@ class QueryAndGroup(nn.Module):
         assert (self.neighbor_def == 'radius' or self.neighbor_def == 'nn')
 
     def forward(self, xyz, new_xyz, features=None, subset=True, record_neighbor_stats=False, return_counts=False):
-        # type: (QueryAndGroup, torch.Tensor. torch.Tensor, torch.Tensor) -> Tuple[Torch.Tensor]
         r"""
         Parameters
         ----------
@@ -341,7 +349,8 @@ class QueryAndGroup(nn.Module):
         features : torch.Tensor
             Descriptors of the features (B, C, N)
         subset : bool
-            Indicate whether new_xyz is guaranteed to be a subset of xyz
+            whether new_xyz is guaranteed to be a subset of xyz
+            默认为True, 即所得邻近点中会包含自己,计算邻近点和中心点之差时不用担心出现负值
 
         Returns
         -------
@@ -378,6 +387,7 @@ class QueryAndGroup(nn.Module):
             # and it carrys a features of zeros of shape (C)
             # new_xyz (B, npoint, 3)
             # abs_xyz (B, 3, npoint, K)
+            # 将没有邻居的点的邻居全部赋值为自己，使得后面计算相对距离时不为负值
             new_xyz_trans = new_xyz.transpose(1,2).unsqueeze(-1) # (B, 3, npoint, 1)
             have_neigh = (counts>0).float().unsqueeze(1).unsqueeze(-1).detach() # (B, 1, npoint, 1)
             no_neigh = (1-have_neigh)
@@ -387,12 +397,14 @@ class QueryAndGroup(nn.Module):
             new_xyz_trans = new_xyz.transpose(1,2).unsqueeze(-1) # (B, 3, npoint, 1)
             relative_xyz = abs_xyz - new_xyz_trans
 
+        #计算邻近点位置信息的时候不仅计算和中心点的相对位置差，同时加入邻近点的绝对位置
         if self.include_abs_coordinate:
             grouped_xyz = torch.cat([relative_xyz, abs_xyz], dim=1)
             # print('Use both relative position and absolute position')
         else:
             grouped_xyz = relative_xyz
             # print('Only use relative position')
+        #计算邻近点位置信息的时候再额外加入中心点的位置信息
         if self.include_center_coordinate:
             new_xyz_trans = new_xyz_trans.expand(-1,-1,-1,grouped_xyz.shape[3]) # (B, 3, npoint, K)
             grouped_xyz = torch.cat([grouped_xyz, new_xyz_trans], dim=1) # (B, 9, npoint, K)
@@ -408,6 +420,7 @@ class QueryAndGroup(nn.Module):
                 # have_neigh (B, 1, npoint, 1)
                 grouped_features = have_neigh*grouped_features + no_neigh*default_feature
 
+            #在特征中加入坐标信息
             if self.use_xyz:
                 new_features = torch.cat([grouped_features, grouped_xyz], dim=1)# (B, 12, npoint, K)  
                 # (B, C + 3, npoint, nsample) or (B, C + 6, npoint, nsample) 
@@ -419,6 +432,7 @@ class QueryAndGroup(nn.Module):
             ), "Cannot have not features and not use xyz as a feature!"
             new_features = grouped_xyz
 
+        #计算分位数
         if record_neighbor_stats:
             with torch.no_grad():
                 counts = counts.float()

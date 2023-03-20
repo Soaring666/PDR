@@ -5,7 +5,7 @@
         "beta_T": 0.02
     },
     "pointnet_config": {
-        "model_name": "shape_completion_mirror_rot_90_scale_1.2_translation_0.1",
+        "model_name": "mirror_500",
         "in_fea_dim": 0,
         "partial_in_fea_dim": 1,
         "out_dim": 3,
