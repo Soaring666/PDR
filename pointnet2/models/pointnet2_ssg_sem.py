@@ -64,6 +64,10 @@ class PointNet2SemSegSSG(nn.Module):
         global_feature_dim: 1024
         class_condition_dim: None
         global_attention_setting: None
+        mlp_spec: [4, 32, 32, 64],
+                  [96, 64, 64, 128],
+                  [192, 128, 128, 256],
+                  [320, 256, 256, 512]
         """
         SA_modules = nn.ModuleList()
         if not isinstance(neighbor_def, list):
@@ -81,7 +85,7 @@ class PointNet2SemSegSSG(nn.Module):
                 # if bn_first, we will need to add a conv layer at the beginning
                 # first_mlp_input_dim = mlp_spec[1] if first_conv else in_fea_dim
                 if not first_conv:
-                    mlp_spec[0] = in_fea_dim  #3 + 32
+                    mlp_spec[0] = in_fea_dim  #4
             else:
                 first_conv = False
             
@@ -102,6 +106,8 @@ class PointNet2SemSegSSG(nn.Module):
                                     i in global_attention_setting['global_attention_layer_index'])    #False
             this_global_attention_setting = global_attention_setting if use_global_attention else None    #None
 
+            #first_conv = False
+            #res_connect = True
             SA_modules.append(
                 PointnetSAModule(
                     npoint=npoint[i],radius=radius[i],nsample=nsample[i],mlp=mlp_spec,use_xyz=self.hparams["model.use_xyz"],
@@ -113,7 +119,7 @@ class PointNet2SemSegSSG(nn.Module):
                     include_second_condition=include_second_condition, second_condition_dim=second_condition_dim,
                     neighbor_def = neighbor_def[i], activation=activation, bn=bn,
                     attention_setting=attention_setting,
-                    global_attention_setting=this_global_attention_setting
+                    global_attention_setting=None
                 ))
         return SA_modules
 

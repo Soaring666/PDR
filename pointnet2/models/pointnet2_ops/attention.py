@@ -26,6 +26,7 @@ def count_to_mask(count, K):
     # counts is of shape (B, npoint)
     # its value range from 0 to K-1
     # return a mask of shape (B, npoint, K)
+    # 即生成一个矩阵，K其实为KNN中的邻近点个数，如果一个点的邻近点不足k，则将相应值置为False
     mask = torch.arange(K, device=count.device, dtype=count.dtype)
     B, npoint = count.size()
     mask = mask.repeat(B, npoint).view(B, npoint,-1) # shape (B, npoint, K)
@@ -68,10 +69,15 @@ class AttentionModule(nn.Module):
 
 
     def forward(self, feat, grouped_feat, grouped_feat_out, count):
-        # feat (B,C_in1,N), acts like query
-        # grouped_feat (B,C_in2,N,K), acts like key
-        # grouped_feat_out (B,C_out,N,K) # acts like value
-        # count is of shape (B,N)
+        """
+        input: 
+            feat (B,C_in1,N), acts like query
+            grouped_feat (B,C_in2,N,K), acts like key
+            grouped_feat_out (B,C_out,N,K) # acts like value
+            count is of shape (B,N)
+        output:
+            out: (B, C_out, N), C_out=mlp_sepc[-1]
+        """
         K = grouped_feat.shape[-1]
         feat1 = self.feat_conv(feat.unsqueeze(-1)) # (B,C1,N,1)
         feat1 = feat1.expand(-1,-1,-1,K) # (B,C1,N,K)
@@ -88,7 +94,6 @@ class AttentionModule(nn.Module):
             scores = scores * mask + (-1e9)*(1-mask)
 
         weight = F.softmax(scores, dim=-1) # (B,C_out,N,K)
-        # pdb.set_trace()
         if self.transform_grouped_feat_out:
             grouped_feat_out = self.feat_out_conv(grouped_feat_out) # B,C_out,N,K
         out = grouped_feat_out * weight # B,C_out,N,K

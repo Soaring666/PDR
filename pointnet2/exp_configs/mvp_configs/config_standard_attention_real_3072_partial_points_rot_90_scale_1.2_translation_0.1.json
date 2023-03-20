@@ -77,55 +77,29 @@
         }
     },
     "train_config": {
-        "task": "completion",
         "dataset": "mvp_dataset",
         "root_directory": "exp_mvp_dataset_completion",
         "output_directory": "logs/checkpoint",
-        "tensorboard_directory": "logs/tensorboard",
-        "ckpt_iter": "max",
+	  "continue_ckpts": false,
+        "ckpt_epoch": "max",
+	  "n_epochs": 350,
         "epochs_per_ckpt": 20,
-        "iters_per_logging": 50,
-        "n_epochs": 350,
-        "eval_start_epoch": 0,
-        "eval_per_ckpt": 1,
         "learning_rate": 0.0002,
-        "loss_type": "mse",
-        "conditioned_on_cloud": true,
-        "random_shuffle_points": true,
         "only_save_the_best_model": false,
-        "compute_emd": true,
-        "split_dataset_to_multi_gpus": true
     },
     "mvp_dataset_config": {
-        "dataset": "mvp_dataset",
         "data_dir": "./mvp_dataloader/data/mvp_dataset",
+	  "train": true,
         "npoints": 2048,
         "novel_input": true,
         "novel_input_only": false,
         "scale": 1,
-        "batch_size": 32,
-        "eval_batch_size": 200,
+	  "random_sample_num": None,
         "num_workers": 4,
-        "num_samples_tested": 1600,
-        "test_trainset_during_eval": true,
-        "include_generated_samples": false,
-        "augmentation": {
-            "pc_augm_scale": 1.2,
-            "pc_augm_rot": true,
-            "pc_rot_scale": 90,
-            "pc_augm_mirror_prob": 0.5,
-            "pc_augm_jitter": false,
-            "translation_magnitude": 0.1,
-            "noise_magnitude_for_generated_samples": 0
-        },
         "use_mirrored_partial_input": true,
         "number_partial_points": 3072
     },
     "gen_config": {
         "ckpt_path": "logs/checkpoint"
     },
-    "dist_config": {
-        "dist_backend": "nccl",
-        "CUDA_VISIBLE_DEVICES": "0,1,2,3,4,5,6,7"
-    }
 }

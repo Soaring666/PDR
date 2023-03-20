@@ -93,6 +93,7 @@ class Mlp_plus_t_emb(nn.Module):
             self.first_conv = nn.Conv2d(first_conv_in_channel, 
                         mlp_spec[0], kernel_size=1, bias=bias)
 
+        #加一个残差连接
         self.res_connect_bool = res_connect
         if res_connect:
             if mlp_spec[0] == mlp_spec[-1]:
@@ -330,7 +331,7 @@ class PointnetSAModuleMSG(_PointnetSAModuleBase):
         self.use_attention_module = False
         if attention_setting is not None:
             assert isinstance(attention_setting, dict)
-            self.use_attention_module = attention_setting['use_attention_module']
+            self.use_attention_module = attention_setting['use_attention_module']  #True
         self.attention_modules = nn.ModuleList() if self.use_attention_module else None
 
         self.use_global_attention_module = False
@@ -350,7 +351,7 @@ class PointnetSAModuleMSG(_PointnetSAModuleBase):
                 if npoint is not None
                 else pointnet2_utils.GroupAll(use_xyz)
             )
-            mlp_spec = mlps[i]
+            mlp_spec = mlps[i]   #[4, 32, 32, 64]
 
             ori_first_conv_in_channel = copy.deepcopy(first_conv_in_channel)
             ori_mlp_spec0 = copy.deepcopy(mlp_spec[0])
@@ -368,7 +369,7 @@ class PointnetSAModuleMSG(_PointnetSAModuleBase):
                     if include_abs_coordinate:
                         mlp_spec[0] += 3
                     if include_center_coordinate:
-                        mlp_spec[0] += 3
+                        mlp_spec[0] += 3   #mlp_spec: [13, 32, 32, 64]
 
             
             self.mlps.append(Mlp_plus_t_emb(mlp_spec, bn, t_dim=self.t_dim, include_t=include_t,
@@ -379,14 +380,14 @@ class PointnetSAModuleMSG(_PointnetSAModuleBase):
                         activation=activation))
             
             if self.use_attention_module:
-                C_in1 = ori_first_conv_in_channel if first_conv else ori_mlp_spec0
-                C_in2 = first_conv_in_channel if first_conv else mlp_spec[0]
+                C_in1 = ori_first_conv_in_channel if first_conv else ori_mlp_spec0  #4
+                C_in2 = first_conv_in_channel if first_conv else mlp_spec[0]   #13
                 C1 = C_in1; C2 = C_in2
                 C_out = mlp_spec[-1]
                 self.attention_modules.append(AttentionModule(C_in1, C_in2, C1, C2, C_out, 
                     attention_bn=attention_setting['attention_bn'], 
                     transform_grouped_feat_out=attention_setting['transform_grouped_feat_out'], 
-                    last_activation=attention_setting['last_activation']))
+                    last_activation=attention_setting['last_activation']))      #都为True
             
             if self.use_global_attention_module:
                 self.global_attention_modules.append(GlobalAttentionModule(mlp_spec[-1], 

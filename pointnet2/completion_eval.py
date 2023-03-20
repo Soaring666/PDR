@@ -25,7 +25,6 @@ from eval.plot_result import plot_result
 from eval.compare_eval_result import plot_result_list
 
 
-from dataparallel import MyDataParallel
 import h5py
 import time
 
@@ -59,7 +58,6 @@ def evaluate(net, testloader, diffusion_hyperparams, print_every_n_steps=200,
                 num_points=None, 
                 noise_magnitude_added_to_gt=0.01, add_noise_to_generated_for_refine_exp=False,
                 fast_sampling=False, fast_sampling_config=None, diffusion_config=None):
-    assert task in ['completion', 'refine_completion']
     CD_meter = AverageMeter()
     F1_meter = AverageMeter()
     EMD_meter = AverageMeter()
@@ -179,7 +177,7 @@ def evaluate(net, testloader, diffusion_hyperparams, print_every_n_steps=200,
             if total_generated_data is None:
                 total_generated_data = generated_data.detach().cpu().numpy()
             else:
-                total_generated_data = np.concatenate([total_generated_data, 
+                    total_generated_data = np.concatenate([total_generated_data, 
                                         generated_data.detach().cpu().numpy()], axis=0)
             hf = h5py.File(save_file, 'w')
             hf.create_dataset('data', data=total_generated_data)

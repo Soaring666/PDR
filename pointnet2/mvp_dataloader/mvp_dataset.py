@@ -116,7 +116,7 @@ class ShapeNetH5(data.Dataset):
             else:
                 self.input_data = np.concatenate((self.input_data, self.novel_input_data), axis=0)
             
-            #只取训练集的前300张飞机图进行训练看效果
+            #只取训练集的前500张飞机图进行训练看效果
             self.input_data = self.input_data[0:500, :, :]
             self.gt_data = np.concatenate((self.gt_data, self.novel_gt_data), axis=0)
             self.labels = np.concatenate((self.labels, self.novel_labels), axis=0)
