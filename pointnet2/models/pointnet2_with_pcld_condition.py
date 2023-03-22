@@ -5,12 +5,13 @@ from pointnet2_ops.pointnet2_modules import PointnetFPModule, PointnetSAModule, 
 from pointnet2_ops.pointnet2_utils import QueryAndGroup
 from torch.utils.data import DataLoader
 
-# from pointnet2.data import Indoor3DSemSeg
-# from pointnet2.models.pointnet2_ssg_cls import PointNet2ClassificationSSG
-from pointnet2_ssg_sem import PointNet2SemSegSSG, calc_t_emb, swish
+from models.pointnet2_ssg_sem import PointNet2SemSegSSG, calc_t_emb, swish
+from models.pnet import Pnet2Stage
+from models.model_utils import get_embedder
+
 # from pointnet2_ssg_sem import PointNet2SemSegSSG, calc_t_emb, swish
-from pnet import Pnet2Stage
-from model_utils import get_embedder
+# from pnet import Pnet2Stage
+# from model_utils import get_embedder
 
 import copy
 import numpy as np
@@ -358,12 +359,7 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
             l_xyz.append(li_xyz)
             l_features.append(li_features)
         
-        if self.include_local_feature:
-            if self.l_uvw is None:
-                self.l_uvw = l_uvw
-                self.encoder_cond_features = l_cond_features
-        # l_uvw, l_cond_features will be of length len(self.SA_modules_condition)+1
-        # the last condition feature l_cond_features[-1] is not used in the encoder
+        
 
         for i in range(-1, -(len(self.FP_modules) + 1), -1):
             # i from -1 to -len(self.FP_modules)
@@ -401,17 +397,9 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
         
         # l_cond_features[0] has not been used
         if self.include_local_feature:
-            if  self.decoder_cond_features is None:
-                self.decoder_cond_features = l_cond_features
-            
-            if (self.decoder_cond_features is not None):
-                mapped_feature = self.decoder_feature_map[0](self.l_uvw[0], self.decoder_cond_features[0], l_xyz[0],
-                                        subset=False, record_neighbor_stats=self.record_neighbor_stats, pooling=self.pooling,
-                                        features_at_new_xyz = l_features[0])
-            else:
-                mapped_feature = self.decoder_feature_map[0](l_uvw[0], l_cond_features[0], l_xyz[0],
-                                        subset=False, record_neighbor_stats=self.record_neighbor_stats, pooling=self.pooling,
-                                        features_at_new_xyz = l_features[0])
+            mapped_feature = self.decoder_feature_map[0](l_uvw[0], l_cond_features[0], l_xyz[0],
+                                    subset=False, record_neighbor_stats=self.record_neighbor_stats, pooling=self.pooling,
+                                    features_at_new_xyz = l_features[0])
             out_feature = torch.cat([ mapped_feature,l_features[0] ], dim=1)
         else:
             out_feature = l_features[0]
@@ -493,16 +481,18 @@ if __name__ == '__main__':
         net.train()
         """
             transform_X: (B, N, 3) X_t in the forward
-            condition:  (B, N, 3) incomplete points 
+            condition:  (B, N, 4) incomplete points 
             ts: (B, ) diffusion steps
             label: (B, ) points label
         """
-        transformed_X = torch.randn(3, 2048, 3).to(device)
+        transformed_X = torch.randn(8, 2048, 3).to(device)
         print(transformed_X.device)
-        condition = torch.randn(3, 3072, 4).to(device)
-        ts = torch.tensor([4, 8 ,9]).to(device)
-        label = torch.tensor([1, 2, 3]).to(device)
+        condition = torch.randn(8, 3072, 4).to(device)
+        ts = torch.tensor([4, 8 ,9, 23, 32, 42, 24, 56]).to(device)
+        label = torch.tensor([1, 2, 3, 4, 5, 6, 7, 8]).to(device)
         epsilon_theta = net(transformed_X, condition, ts, label=label)
+        print(epsilon_theta)
+        print(epsilon_theta.shape)
 
     if log:
         import logging

@@ -45,6 +45,7 @@ class ShapeNetH5(data.Dataset):
             self.gt_path = '%s/mvp_test_gt_%dpts.h5' % (data_dir, npoints)
 
         # load partial point clouds and their labels
+        print(self.input_path)
         input_file = h5py.File(self.input_path, 'r')
         self.input_data = np.array((input_file['incomplete_pcds'][()]))
         self.labels = np.array((input_file['labels'][()]))
@@ -116,8 +117,8 @@ class ShapeNetH5(data.Dataset):
             else:
                 self.input_data = np.concatenate((self.input_data, self.novel_input_data), axis=0)
             
-            #只取训练集的前500张飞机图进行训练看效果
-            self.input_data = self.input_data[0:500, :, :]
+            #只取训练集的前1000张飞机图进行训练看效果
+            self.input_data = self.input_data[0:1000, :, :]
             self.gt_data = np.concatenate((self.gt_data, self.novel_gt_data), axis=0)
             self.labels = np.concatenate((self.labels, self.novel_labels), axis=0)
 
@@ -215,11 +216,12 @@ class ShapeNetH5(data.Dataset):
         return result
 
 if __name__ == '__main__':
+    from tqdm import tqdm
     aug_args = {'pc_augm_scale':1.5, 'pc_augm_rot':True, 'pc_rot_scale':30.0, 'pc_augm_mirror_prob':0.5, 'pc_augm_jitter':False, 'translation_magnitude': 0.1}
     aug_args = False
     include_generated_samples=False
     path = os.getcwd()
-    data_dir = os.path.join(path, 'mvp_dataloader/data/mvp_dataset') 
+    data_dir = os.path.join(path, 'pointnet2/mvp_dataloader/data/mvp_dataset') 
     # generated_sample_path='generated_samples/T1000_betaT0.02_shape_completion_mirror_rot_60_scale_1.2_translation_0.05/ckpt_623999'
     dataset = ShapeNetH5(data_dir=data_dir, train=True, npoints=2048, novel_input=True, novel_input_only=False,
                             augmentation=aug_args, scale=1,
@@ -233,11 +235,11 @@ if __name__ == '__main__':
  
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=128, shuffle=False, num_workers=4)
     print(len(dataloader))
-    
-    for i, data in enumerate(dataloader):
+   
+    for data in tqdm(dataloader):
         label, partial, complete = data['label'], data['partial'], data['complete']
         # data['M_inv'] is of shape (B,3,3)
         # data['translation'] is of shape (B,1,3)
-        print('index %d label %s partail shape %s [%.3f, %.3f] complete shape %s [%.3f, %.3f]' % (
-            i, label.shape, partial.shape, partial.min(), partial.max(), complete.shape, complete.min(), complete.max(),))
+        print('label %s partail shape %s [%.3f, %.3f] complete shape %s [%.3f, %.3f]' % (
+            label.shape, partial.shape, partial.min(), partial.max(), complete.shape, complete.min(), complete.max(),))
      

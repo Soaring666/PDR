@@ -13,11 +13,12 @@ from util import find_max_epoch, print_size
 from util import training_loss, calc_diffusion_hyperparams
 from models.pointnet2_with_pcld_condition import PointNet2CloudCondition  #net
 from shutil import copyfile
+from tqdm import tqdm
 
 
 
 def train(config_file, dataset, root_directory, output_directory, continue_ckpts, 
-          ckpt_epoch, n_epochs, epochs_per_ckpt,
+          ckpt_epoch, n_epochs, epochs_per_ckpt, batch_size, 
           learning_rate, only_save_the_best_model=False):
     """
     Train the PointNet2SemSegSSG model on the 3D dataset
@@ -32,6 +33,7 @@ def train(config_file, dataset, root_directory, output_directory, continue_ckpts
                                     automitically selects the maximum epoch if 'max' is selected
     n_epochs (int):                 number of epochs to train
     epochs_per_ckpt (int):          number of epochs to save checkpoint
+    batch_size(int):                batch_size
     learning_rate (float):          learning rate
     only_save_the_best_model(bool): save only the best model
     """
@@ -43,14 +45,10 @@ def train(config_file, dataset, root_directory, output_directory, continue_ckpts
     if not os.path.isdir(output_directory):
         os.makedirs(output_directory)
         os.chmod(output_directory, 0o775)
-    try:
-        copyfile(config_file, os.path.join(output_directory, os.path.split(config_file)[1]))
-    except:
-        print('The two files are the same, no need to copy')
+   
         
     print("output directory is", output_directory, flush=True)
-    print("Config file has been copied from %s to %s" % (config_file, 
-        os.path.join(output_directory, os.path.split(config_file)[1])), flush=True)
+
     
     # map diffusion hyperparameters to gpu
     for key in diffusion_hyperparams:
@@ -62,7 +60,6 @@ def train(config_file, dataset, root_directory, output_directory, continue_ckpts
     print('Data loaded')
     
     net = PointNet2CloudCondition(pointnet_config).cuda()
-    net.train()
     print_size(net)
 
     # optimizer
@@ -93,7 +90,6 @@ def train(config_file, dataset, root_directory, output_directory, continue_ckpts
         ckpt_epoch = -1
         print('No valid checkpoint model found, start training from initialization.', flush=True)
 
-    print(net)
     # training
     n_epoch = ckpt_epoch + 1 # starting cpoch number
     
@@ -101,16 +97,21 @@ def train(config_file, dataset, root_directory, output_directory, continue_ckpts
 
     last_saved_model = None
 
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=128, shuffle=True, num_workers=4)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
     while n_epoch < n_epochs + 1:
-        for i, data in enumerate(dataloader):
+        net.train()
+        sum_loss = 0
+        for data in tqdm(dataloader):
             label, condition, X = data['label'], data['partial'], data['complete']
+            label = label.cuda()
+            condition = condition.cuda()
+            X = X.cuda()
             optimizer.zero_grad()
             loss = training_loss(net, loss_function, X, diffusion_hyperparams,
                                 label=label, condition=condition)
             loss.backward()
             optimizer.step()
-            wandb.log({"loss": loss.item(), "epoch": n_epoch})
+            sum_loss += loss.item()
 
             # save checkpoint
             if n_epoch > 0 and (n_epoch+1) % epochs_per_ckpt == 0:
@@ -125,23 +126,26 @@ def train(config_file, dataset, root_directory, output_directory, continue_ckpts
                             os.path.join(output_directory, checkpoint_name))
                 print(('model at epoch %s is saved' %n_epoch), flush=True)
                 last_saved_model = os.path.join(output_directory, checkpoint_name)
+        average_loss = sum_loss / (len(dataloader) * batch_size)
+        wandb.log({"loss": average_loss, "epoch": n_epoch})
+        n_epoch += 1
 
                 
 
 if __name__ == "__main__":
+
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--config', type=str, 
-                        default='./exp_configs/mvp_configs/config_standard_attention_real_3072_partial_points_rot_90_scale_1.2_translation_0.1.json', 
+                        default='exp_configs/mvp_configs/config_standard_attention_real_3072_partial_points_rot_90_scale_1.2_translation_0.1.json',
                         help='JSON file for configuration')
     args = parser.parse_args()
-
-    wandb.login()
-    run = wandb.init(project="mirror_500")
     path = os.getcwd()
     config_path = os.path.join(path,'pointnet2', args.config)
     with open(config_path,'r') as f:
         json_config = json.load(f)
-    wandb.init(config=json_config)
+
+    wandb.login()
+    run = wandb.init(project="mirror_train", config=json_config)
 
     global train_config
     train_config = wandb.config["train_config"]        
