@@ -79,14 +79,14 @@
     "train_config": {
         "dataset": "mvp_dataset",
         "root_directory": "exp_mvp_dataset_completion",
-        "output_directory": "logs/checkpoint",
+        "checkpoint_directory": "checkpoint",
 	  "continue_ckpts": false,
         "ckpt_epoch": "max",
 	  "n_epochs": 350,
         "epochs_per_ckpt": 20,
         "batch_size": 8,
         "learning_rate": 0.0002,
-        "only_save_the_best_model": false
+        "value": true
     },
     "mvp_dataset_config": {
         "data_dir": "./pointnet2/mvp_dataloader/data/mvp_dataset",

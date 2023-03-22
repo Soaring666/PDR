@@ -12,14 +12,15 @@ from mvp_dataloader.mvp_dataset import ShapeNetH5
 from util import find_max_epoch, print_size
 from util import training_loss, calc_diffusion_hyperparams
 from models.pointnet2_with_pcld_condition import PointNet2CloudCondition  #net
+from evaluate import evaluate  #evaluate function
 from shutil import copyfile
 from tqdm import tqdm
 
 
 
-def train(config_file, dataset, root_directory, output_directory, continue_ckpts, 
+def train(config_file, dataset, root_directory, checkpoint_directory, continue_ckpts, 
           ckpt_epoch, n_epochs, epochs_per_ckpt, batch_size, 
-          learning_rate, only_save_the_best_model=False):
+          learning_rate, value):
     """
     Train the PointNet2SemSegSSG model on the 3D dataset
 
@@ -27,7 +28,7 @@ def train(config_file, dataset, root_directory, output_directory, continue_ckpts
     config_file(str):               path to the config file
     dataset(str):                   mvp_dataset, the name of the dataset
     root_directory(str):            path of the root directory
-    output_directory (str):         save model checkpoints to this path
+    checkpoint_directory (str):         save model checkpoints to this path
     continue_ckpts(bool):           if continue train
     ckpt_epoch (int or 'max'):      the pretrained checkpoint to be loaded; 
                                     automitically selects the maximum epoch if 'max' is selected
@@ -35,19 +36,20 @@ def train(config_file, dataset, root_directory, output_directory, continue_ckpts
     epochs_per_ckpt (int):          number of epochs to save checkpoint
     batch_size(int):                batch_size
     learning_rate (float):          learning rate
-    only_save_the_best_model(bool): save only the best model
+    value(bool):                    if value during training
     """
     local_path = "T{}_betaT{}".format(diffusion_config["T"], diffusion_config["beta_T"])
     local_path = local_path + '_' + pointnet_config['model_name']
     
 
-    output_directory = os.path.join(root_directory, local_path, output_directory)
-    if not os.path.isdir(output_directory):
-        os.makedirs(output_directory)
-        os.chmod(output_directory, 0o775)
+    checkpoint_directory = os.path.join(root_directory, local_path, checkpoint_directory)
+    
+    if not os.path.isdir(checkpoint_directory):
+        os.makedirs(checkpoint_directory)
+        os.chmod(checkpoint_directory, 0o775)
    
         
-    print("output directory is", output_directory, flush=True)
+    print("checkpoint directory is", checkpoint_directory, flush=True)
 
     
     # map diffusion hyperparameters to gpu
@@ -56,8 +58,13 @@ def train(config_file, dataset, root_directory, output_directory, continue_ckpts
             diffusion_hyperparams[key] = diffusion_hyperparams[key].cuda()
 
     # load training data
-    dataset = ShapeNetH5(**trainset_config)
+    train_dataset = ShapeNetH5(**trainset_config)
+    test_dataset = ShapeNetH5(**testset_config)
     print('Data loaded')
+
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True)
+    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, drop_last=True)
+    train_value_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=4, drop_last=True)
     
     net = PointNet2CloudCondition(pointnet_config).cuda()
     print_size(net)
@@ -69,10 +76,10 @@ def train(config_file, dataset, root_directory, output_directory, continue_ckpts
     time0 = time.time()
     if continue_ckpts:
         if ckpt_epoch == 'max':
-            ckpt_epoch = find_max_epoch(output_directory, 'pointnet_ckpt')
+            ckpt_epoch = find_max_epoch(checkpoint_directory, 'pointnet_ckpt')
             try:
                 # load checkpoint file
-                model_path = os.path.join(output_directory, 'pointnet_ckpt_{}.pkl'.format(ckpt_epoch))
+                model_path = os.path.join(checkpoint_directory, 'pointnet_ckpt_{}.pkl'.format(ckpt_epoch))
                 checkpoint = torch.load(model_path, map_location='cpu')
                 
                 # feed model dict and optimizer state
@@ -95,13 +102,10 @@ def train(config_file, dataset, root_directory, output_directory, continue_ckpts
     
     loss_function = nn.MSELoss()
 
-    last_saved_model = None
-
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
     while n_epoch < n_epochs + 1:
         net.train()
         sum_loss = 0
-        for data in tqdm(dataloader):
+        for data in tqdm(train_dataloader):
             label, condition, X = data['label'], data['partial'], data['complete']
             label = label.cuda()
             condition = condition.cuda()
@@ -116,19 +120,61 @@ def train(config_file, dataset, root_directory, output_directory, continue_ckpts
             # save checkpoint
             if n_epoch > 0 and (n_epoch+1) % epochs_per_ckpt == 0:
                 # save checkpoint
-                if last_saved_model is not None and only_save_the_best_model:
-                    os.remove(last_saved_model)
                 checkpoint_name = 'pointnet_ckpt_{}.pkl'.format(n_epoch)
                 torch.save({'iter': n_epoch,
                             'model_state_dict': net.state_dict(),
                             'optimizer_state_dict': optimizer.state_dict(),
                             'training_time_seconds': int(time.time()-time0)}, 
-                            os.path.join(output_directory, checkpoint_name))
+                            os.path.join(checkpoint_directory, checkpoint_name))
                 print(('model at epoch %s is saved' %n_epoch), flush=True)
-                last_saved_model = os.path.join(output_directory, checkpoint_name)
-        average_loss = sum_loss / (len(dataloader) * batch_size)
+        average_loss = sum_loss / (len(train_dataloader) * batch_size)
         wandb.log({"loss": average_loss, "epoch": n_epoch})
         n_epoch += 1
+        
+        #value
+        if value:
+            net.eval()
+            if n_epoch % 10 ==0:
+                print('\nBegin evaluting the saved checkpoint')
+
+                with torch.no_grad():
+                    CD_sum = 0
+                    F1_sum = 0
+                    for i, data in tqdm(enumerate(test_dataloader)):
+                        label = data['label'].cuda()
+                        condition = data['partial'].cuda()
+                        gt = data['complete'].cuda()
+                        size = gt.shape()
+                        if i == 10:
+                            CD_test_loss, F1_test_loss, _, _ = evaluate(net, batch_size, size, diffusion_hyperparams,
+                                                                            label, condition, gt, n_epoch, local_path, save_slices=True)
+                        else:
+                            CD_test_loss, F1_test_loss, _, _ = evaluate(net, batch_size, size, diffusion_hyperparams,
+                                                                            label, condition, gt, n_epoch, local_path, save_slices=False)
+                        CD_sum += CD_test_loss
+                        F1_sum += F1_test_loss
+                        wandb.log({"CD_test_loss": CD_test_loss/len(test_dataloader),
+                                   "F1_test_loss": F1_test_loss/len(test_dataloader)})
+
+                    CD_sum = 0
+                    F1_sum = 0
+                    for i, data in tqdm(enumerate(train_value_dataloader)):
+                        label = data['label'].cuda()
+                        condition = data['partial'].cuda()
+                        gt = data['complete'].cuda()
+                        size = gt.shape()
+                        if i == 10:
+                            CD_train_loss, F1_train_loss, _, _ = evaluate(net, batch_size, size, diffusion_hyperparams,
+                                                                            label, condition, gt, n_epoch, local_path, save_slices=True)
+                        else:
+                            CD_train_loss, F1_train_loss, _, _ = evaluate(net, batch_size, size, diffusion_hyperparams,
+                                                                            label, condition, gt, n_epoch, local_path, save_slices=False)
+                        CD_sum += CD_train_loss
+                        F1_sum += F1_train_loss
+                        wandb.log({"CD_train_loss": CD_train_loss/len(train_value_dataloader),
+                                   "F1_train_loss": F1_train_loss/len(train_value_dataloader)})
+
+
 
                 
 
@@ -155,6 +201,9 @@ if __name__ == "__main__":
     diffusion_config = wandb.config["diffusion_config"]   
     global trainset_config
     trainset_config = wandb.config["mvp_dataset_config"]
+    global testset_config
+    testset_config = copy.deepcopy(trainset_config)
+    testset_config["train"] = False
     global diffusion_hyperparams 
     diffusion_hyperparams = calc_diffusion_hyperparams(**diffusion_config)  # dictionary of all diffusion hyperparameters
     

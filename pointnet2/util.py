@@ -15,14 +15,11 @@ class AverageMeter(object):
         self.avg = 0
         self.sum = 0
         self.count = 0
-    def update(self, val, n=1, summary_writer=None, global_step=None):
+    def update(self, val, n=1):
         self.val = val
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
-        if summary_writer is not None:
-            # record the val in tensorboard
-            summary_writer.add_scalar(self.name, val, global_step=global_step)
 
 
 def flatten(v):
@@ -180,10 +177,9 @@ def calc_diffusion_hyperparams(T, beta_0, beta_T):
     return diffusion_hyperparams
 
 
-def sampling(net, size, diffusion_hyperparams, print_every_n_steps=100, label=0,
-                verbose=True, condition=None, return_multiple_t_slices=False,
-                t_slices=[5, 10, 20, 50, 100, 200, 400, 600, 800],
-                use_a_precomputed_XT=False, step=100, XT=None):
+def sampling(net, size, diffusion_hyperparams, label, condition, save_slices, 
+                t_slices=[0, 5, 10, 20, 50, 100, 200, 400, 600, 800],
+                ):
     """
     Perform the complete sampling step according to p(x_0|x_T) = \prod_{t=1}^T p_{\theta}(x_{t-1}|x_t)
 
@@ -192,10 +188,12 @@ def sampling(net, size, diffusion_hyperparams, print_every_n_steps=100, label=0,
     size (tuple):                   size of tensor to be generated
     diffusion_hyperparams (dict):   dictionary of diffusion hyperparameters returned by calc_diffusion_hyperparams
                                     note, the tensors need to be cuda tensors
-    print_every_n_steps (int):      print status every this number of reverse steps          
-    
+    save_slices (bool):             if save the generate slices
+    t_slices (int):                 save samples in t 
+
     Returns:
-    the generated audio(s) in torch.tensor, shape=size
+    x(tensor):                      the generated sampel
+    result_slices(dict):            saved samples in t
     """
 
     _dh = diffusion_hyperparams
@@ -204,41 +202,25 @@ def sampling(net, size, diffusion_hyperparams, print_every_n_steps=100, label=0,
     assert len(Alpha_bar) == T
     assert len(Sigma) == T
     assert len(size) == 3
-    
     print('begin sampling, total number of reverse steps = %s' % T)
-    if return_multiple_t_slices:
-        result_slices = {}
+
     x = std_normal(size)
-    if label is not None and isinstance(label, int):
-        label = torch.ones(size[0]).long().cuda() * label
-    if use_a_precomputed_XT:
-        x = XT + Sigma[step] * std_normal(size)
-        start_iter = step-1
-    else:
-        start_iter = T-1
+    label = torch.ones(size[0]).long().cuda() * label
+    start_iter = T-1
     with torch.no_grad():
         for t in range(start_iter, -1, -1): # t from T-1 to 0
-            if verbose:
-                print('t%d x max %.2f min %.2f' % (t, x.max(), x.min()))
-            if t % print_every_n_steps == 0:
-                print('reverse step: %d' % t, flush=True)
             diffusion_steps = (t * torch.ones((size[0],))).cuda()  # use the corresponding reverse step
-            if condition is None:
-                epsilon_theta = net(x, ts=diffusion_steps, label=label)  # predict \epsilon according to \epsilon_\theta
-            else:
-                epsilon_theta = net(x, condition, ts=diffusion_steps, label=label, use_retained_condition_feature=True)
-            if verbose:
-                print('t %d epsilon_theta max %.2f min %.2f' % (t, epsilon_theta.max(), epsilon_theta.min()))
+            epsilon_theta = net(x, condition, ts=diffusion_steps, label=label)
             sqrt_Alpha = torch.sqrt(Alpha[t])
             x = (x - (1-Alpha[t])/torch.sqrt(1-Alpha_bar[t]) * epsilon_theta) / sqrt_Alpha  # update x_{t-1} to \mu_\theta(x_t)
-            if t > 0:
-                x = x + Sigma[t] * std_normal(size)  # add the variance term to x_{t-1}
-            if return_multiple_t_slices and t in t_slices:
-                result_slices[t] = x 
+            x = x + Sigma[t] * std_normal(size)  # add the variance term to x_{t-1}
 
-    if not condition is None:
-        net.reset_cond_features()
-    if return_multiple_t_slices:
+            if save_slices:
+                result_slices = {}
+                if t in t_slices:
+                    result_slices[t] = x 
+
+    if save_slices:
         return x, result_slices
     else:
         return x
