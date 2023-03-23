@@ -217,6 +217,7 @@ class ShapeNetH5(data.Dataset):
 
 if __name__ == '__main__':
     from tqdm import tqdm
+    import time
     aug_args = {'pc_augm_scale':1.5, 'pc_augm_rot':True, 'pc_rot_scale':30.0, 'pc_augm_mirror_prob':0.5, 'pc_augm_jitter':False, 'translation_magnitude': 0.1}
     aug_args = False
     include_generated_samples=False
@@ -233,13 +234,14 @@ if __name__ == '__main__':
                             XT_folder=None,
                             return_augmentation_params=False)
  
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=128, shuffle=False, num_workers=4)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=64, shuffle=False, num_workers=4)
     print(len(dataloader))
    
-    for data in tqdm(dataloader):
+    for i, data in tqdm(enumerate(dataloader)):
         label, partial, complete = data['label'], data['partial'], data['complete']
         # data['M_inv'] is of shape (B,3,3)
         # data['translation'] is of shape (B,1,3)
         print('label %s partail shape %s [%.3f, %.3f] complete shape %s [%.3f, %.3f]' % (
             label.shape, partial.shape, partial.min(), partial.max(), complete.shape, complete.min(), complete.max(),))
+        time.sleep(0.5)
      
