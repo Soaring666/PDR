@@ -34,14 +34,14 @@ def evaluate(net, batch_size, size, diffusion_hyperparams,
     cd_module = Chamfer_F1(f1_threshold=f1_threshold)      
 
     if save_slices:
-        generated_data, result_slices = sampling(net, size, diffusion_hyperparams, 
+        generated_data, result = sampling(net, size, diffusion_hyperparams, 
                                 label=label, condition=condition,
                                 save_slices=True)
 
         #save the generated data
         save_file = os.path.join(sample_directory, 'mvp_generated_data_2048pts_epoch%d.h5' % n_epoch)
         hf = h5py.File(save_file, 'w')
-        hf.create_dataset('data', data=result_slices)
+        hf.create_dataset('data', data=result)
         hf.close()
 
     else:

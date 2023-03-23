@@ -216,12 +216,13 @@ def sampling(net, size, diffusion_hyperparams, label, condition, save_slices,
             x = x + Sigma[t] * std_normal(size)  # add the variance term to x_{t-1}
 
             if save_slices:
-                result_slices = {}
+                result_slices = []
                 if t in t_slices:
-                    result_slices[t] = x 
+                    result_slices.append(x)
 
+    result = torch.stack(result_slices)
     if save_slices:
-        return x, result_slices
+        return x, result
     else:
         return x
 
