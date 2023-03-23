@@ -6,14 +6,14 @@ from util import sampling, AverageMeter
 
 
 def evaluate(net, batch_size, size, diffusion_hyperparams,
-                  label, condition, gt, n_epoch, local_path, save_slices):
+                  label, condition, gt, n_epoch, sample_directory, save_slices):
     """
     input:
         batch_size: the value batch size
-        size: the size of generater samples
+        size: the size of generate samples
         n_epoch: the number of epoch
-        local_path: the path to save generater samples
-        save_slices(bool): whether to save generater samples
+        sample_directory: the path to save generate samples
+        save_slices(bool): whether to save generate samples
     output:
         CD_meter: CD loss
         F1_meter: F1 loss
@@ -39,7 +39,7 @@ def evaluate(net, batch_size, size, diffusion_hyperparams,
                                 save_slices=True)
 
         #save the generated data
-        save_file = os.path.join(local_path, 'mvp_generated_data_2048pts_epoch%d.h5' % n_epoch)
+        save_file = os.path.join(sample_directory, 'mvp_generated_data_2048pts_epoch%d.h5' % n_epoch)
         hf = h5py.File(save_file, 'w')
         hf.create_dataset('data', data=result_slices)
         hf.close()

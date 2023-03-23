@@ -270,6 +270,12 @@ class PointNet2CloudCondition(PointNet2SemSegSSG):
         if self.include_global_feature or self.include_local_feature:
             assert condition is not None
 
+        #将没有mirror过的点升到4维
+        B2, N2, C2 = condition.size()
+        if C2 == 3:
+            pad_ones = torch.ones(B2, N2, 1, device=condition.device, dtype=condition.dtype)
+            condition = torch.cat([condition, pad_ones], dim=2)
+
         with torch.no_grad():
             #最后三维作为坐标
             if self.attach_position_to_input_feature:

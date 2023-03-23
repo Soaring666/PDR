@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 
 def train(config_file, dataset, root_directory, checkpoint_directory, continue_ckpts, 
-          ckpt_epoch, n_epochs, epochs_per_ckpt, batch_size, 
+          ckpt_epoch, n_epochs, epochs_per_ckpt, batch_size, generate_batch_size, 
           learning_rate, value):
     """
     Train the PointNet2SemSegSSG model on the 3D dataset
@@ -35,6 +35,7 @@ def train(config_file, dataset, root_directory, checkpoint_directory, continue_c
     n_epochs (int):                 number of epochs to train
     epochs_per_ckpt (int):          number of epochs to save checkpoint
     batch_size(int):                batch_size
+    generate_batch_size(int):       the batch_size in value
     learning_rate (float):          learning rate
     value(bool):                    if value during training
     """
@@ -43,6 +44,7 @@ def train(config_file, dataset, root_directory, checkpoint_directory, continue_c
     
 
     checkpoint_directory = os.path.join(root_directory, local_path, checkpoint_directory)
+    sample_directory = os.path.join(root_directory, local_path)
     
     if not os.path.isdir(checkpoint_directory):
         os.makedirs(checkpoint_directory)
@@ -51,7 +53,7 @@ def train(config_file, dataset, root_directory, checkpoint_directory, continue_c
         
     print("checkpoint directory is", checkpoint_directory, flush=True)
 
-    
+  
     # map diffusion hyperparameters to gpu
     for key in diffusion_hyperparams:
         if key != "T":
@@ -105,6 +107,7 @@ def train(config_file, dataset, root_directory, checkpoint_directory, continue_c
     while n_epoch < n_epochs + 1:
         net.train()
         sum_loss = 0
+        torch.cuda.empty_cache()
         for data in tqdm(train_dataloader):
             label, condition, X = data['label'], data['partial'], data['complete']
             label = label.cuda()
@@ -144,17 +147,17 @@ def train(config_file, dataset, root_directory, checkpoint_directory, continue_c
                         label = data['label'].cuda()
                         condition = data['partial'].cuda()
                         gt = data['complete'].cuda()
-                        size = gt.shape()
+                        size = gt.shape
                         if i == 10:
-                            CD_test_loss, F1_test_loss, _, _ = evaluate(net, batch_size, size, diffusion_hyperparams,
-                                                                            label, condition, gt, n_epoch, local_path, save_slices=True)
+                            CD_test_loss, F1_test_loss, _, _ = evaluate(net, generate_batch_size, size, diffusion_hyperparams,
+                                                                            label, condition, gt, n_epoch, sample_directory, save_slices=True)
                         else:
-                            CD_test_loss, F1_test_loss, _, _ = evaluate(net, batch_size, size, diffusion_hyperparams,
-                                                                            label, condition, gt, n_epoch, local_path, save_slices=False)
+                            CD_test_loss, F1_test_loss, _, _ = evaluate(net, generate_batch_size, size, diffusion_hyperparams,
+                                                                            label, condition, gt, n_epoch, sample_directory, save_slices=False)
                         CD_sum += CD_test_loss
                         F1_sum += F1_test_loss
-                        wandb.log({"CD_test_loss": CD_test_loss/len(test_dataloader),
-                                   "F1_test_loss": F1_test_loss/len(test_dataloader)})
+                    wandb.log({"CD_test_loss": CD_sum/len(test_dataloader),
+                                "F1_test_loss": F1_sum/len(test_dataloader)})
 
                     CD_sum = 0
                     F1_sum = 0
@@ -162,17 +165,17 @@ def train(config_file, dataset, root_directory, checkpoint_directory, continue_c
                         label = data['label'].cuda()
                         condition = data['partial'].cuda()
                         gt = data['complete'].cuda()
-                        size = gt.shape()
+                        size = gt.shape
                         if i == 10:
-                            CD_train_loss, F1_train_loss, _, _ = evaluate(net, batch_size, size, diffusion_hyperparams,
-                                                                            label, condition, gt, n_epoch, local_path, save_slices=True)
+                            CD_train_loss, F1_train_loss, _, _ = evaluate(net, generate_batch_size, size, diffusion_hyperparams,
+                                                                            label, condition, gt, n_epoch, sample_directory, save_slices=True)
                         else:
-                            CD_train_loss, F1_train_loss, _, _ = evaluate(net, batch_size, size, diffusion_hyperparams,
-                                                                            label, condition, gt, n_epoch, local_path, save_slices=False)
+                            CD_train_loss, F1_train_loss, _, _ = evaluate(net, generate_batch_size, size, diffusion_hyperparams,
+                                                                            label, condition, gt, n_epoch, sample_directory, save_slices=False)
                         CD_sum += CD_train_loss
                         F1_sum += F1_train_loss
-                        wandb.log({"CD_train_loss": CD_train_loss/len(train_value_dataloader),
-                                   "F1_train_loss": F1_train_loss/len(train_value_dataloader)})
+                    wandb.log({"CD_train_loss": CD_sum/len(train_value_dataloader),
+                                "F1_train_loss": F1_sum/len(train_value_dataloader)})
 
 
 
@@ -204,6 +207,7 @@ if __name__ == "__main__":
     global testset_config
     testset_config = copy.deepcopy(trainset_config)
     testset_config["train"] = False
+    testset_config["use_mirrored_partial_input"] = False
     global diffusion_hyperparams 
     diffusion_hyperparams = calc_diffusion_hyperparams(**diffusion_config)  # dictionary of all diffusion hyperparameters
     

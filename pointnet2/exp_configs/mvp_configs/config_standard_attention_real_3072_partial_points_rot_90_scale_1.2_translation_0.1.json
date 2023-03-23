@@ -84,7 +84,8 @@
         "ckpt_epoch": "max",
 	  "n_epochs": 350,
         "epochs_per_ckpt": 20,
-        "batch_size": 8,
+        "batch_size": 6,
+        "generate_batch_size": 12,
         "learning_rate": 0.0002,
         "value": true
     },
