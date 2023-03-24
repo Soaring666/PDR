@@ -220,8 +220,8 @@ def sampling(net, size, diffusion_hyperparams, label, condition, save_slices,
                 if t in t_slices:
                     result_slices.append(x)
 
-    result = torch.stack(result_slices)
     if save_slices:
+        result = torch.stack(result_slices)
         return x, result
     else:
         return x

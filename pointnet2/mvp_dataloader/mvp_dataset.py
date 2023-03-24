@@ -111,6 +111,7 @@ class ShapeNetH5(data.Dataset):
         elif novel_input:
             #mirrored_input_data是全部的点云，所以不需要cat
             if use_mirrored_partial_input:
+                print(self.mirrored_input_path)
                 mirrored_file = h5py.File(self.mirrored_input_path, 'r')
                 self.input_data = np.array(mirrored_file['data'])
                 mirrored_file.close()
@@ -118,7 +119,7 @@ class ShapeNetH5(data.Dataset):
                 self.input_data = np.concatenate((self.input_data, self.novel_input_data), axis=0)
             
             #只取训练集的前1000张飞机图进行训练看效果
-            self.input_data = self.input_data[0:500, :, :]
+            self.input_data = self.input_data[0:2000, :, :]
             self.gt_data = np.concatenate((self.gt_data, self.novel_gt_data), axis=0)
             self.labels = np.concatenate((self.labels, self.novel_labels), axis=0)
 

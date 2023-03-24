@@ -5,7 +5,7 @@
         "beta_T": 0.02
     },
     "pointnet_config": {
-        "model_name": "mirror_1000",
+        "model_name": "train_2000",
         "in_fea_dim": 0,
         "partial_in_fea_dim": 1,
         "out_dim": 3,
@@ -84,19 +84,19 @@
         "ckpt_epoch": "max",
 	  "n_epochs": 350,
         "epochs_per_ckpt": 20,
-        "batch_size": 6,
-        "generate_batch_size": 12,
+        "batch_size": 20,
+        "generate_batch_size": 8,
         "learning_rate": 0.0002,
         "value": true
     },
     "mvp_dataset_config": {
-        "data_dir": "./pointnet2/mvp_dataloader/data/mvp_dataset",
+        "data_dir": "pointnet2/mvp_dataloader/data/mvp_dataset",
 	  "train": true,
         "npoints": 2048,
         "novel_input": true,
         "novel_input_only": false,
         "scale": 1,
-        "use_mirrored_partial_input": true
+        "use_mirrored_partial_input": false
     },
     "gen_config": {
         "ckpt_path": "logs/checkpoint"

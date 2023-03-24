@@ -4,7 +4,6 @@ import torch.utils.data as data
 import h5py
 import os
 import sys
-from data_utils.mirror_partial import mirror_and_concat
 sys.path.insert(0, os.path.dirname(__file__))
 from mvp_dataset import ShapeNetH5
 from mirror_partial import mirror_and_concat
@@ -15,14 +14,14 @@ if __name__ == '__main__':
     num_points = 3072
 
     path = os.getcwd()
-    data_dir = 'mvp_dataloader/data/mvp_dataset'
+    data_dir = 'pointnet2/mvp_dataloader/data/mvp_dataset'
     mirror_save_dir = 'mirror_and_concated_partial'
     os.makedirs(os.path.join(path, data_dir, mirror_save_dir), exist_ok=True)
     save_file = 'mvp_train_input_mirror_and_concat_%dpts.h5' % num_points
     save_file = os.path.join(path, data_dir, mirror_save_dir, save_file)
 
     dataset = ShapeNetH5(data_dir, train=train,  npoints=2048, novel_input=True, novel_input_only=False,
-                            scale=0.5, random_subsample=False, num_samples=100000)
+                            scale=0.5)
     
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=4)
     mirror_concat = None

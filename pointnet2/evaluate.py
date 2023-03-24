@@ -1,5 +1,6 @@
 import os
 import h5py
+import time
 import torch
 from chamfer_loss_new import Chamfer_F1
 from util import sampling, AverageMeter
@@ -33,12 +34,14 @@ def evaluate(net, batch_size, size, diffusion_hyperparams,
     f1_threshold = 0.0001
     cd_module = Chamfer_F1(f1_threshold=f1_threshold)      
 
+    starttime = time.time()
     if save_slices:
         generated_data, result = sampling(net, size, diffusion_hyperparams, 
                                 label=label, condition=condition,
                                 save_slices=True)
 
         #save the generated data
+        result = result.cpu()
         save_file = os.path.join(sample_directory, 'mvp_generated_data_2048pts_epoch%d.h5' % n_epoch)
         hf = h5py.File(save_file, 'w')
         hf.create_dataset('data', data=result)
@@ -49,6 +52,9 @@ def evaluate(net, batch_size, size, diffusion_hyperparams,
                                 label=label, condition=condition,
                                 save_slices=False)
 
+    endtime = time.time()
+    alltime = endtime - starttime
+    print(f'sample {batch_size} time: {alltime}')
 
     cd_p, dist, f1 = cd_module(generated_data, gt)
     cd_loss = dist.mean().detach().cpu().item()
