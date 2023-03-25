@@ -7,7 +7,8 @@ from util import sampling, AverageMeter
 
 
 def evaluate(net, batch_size, size, diffusion_hyperparams,
-                  label, condition, gt, n_epoch, sample_directory, save_slices):
+                  label, condition, gt, n_epoch, sample_directory, 
+                  save_slices):
     """
     input:
         batch_size: the value batch size
@@ -68,4 +69,4 @@ def evaluate(net, batch_size, size, diffusion_hyperparams,
     label_data = torch.cat([label_data, label])
     label_data = label_data.detach().cpu().numpy()
 
-    return CD_meter.avg, F1_meter.avg, label_data, metrics
+    return CD_meter.avg, F1_meter.avg, label_data, metrics, result

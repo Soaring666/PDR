@@ -53,7 +53,8 @@ def train(config_file, dataset, root_directory, checkpoint_directory, continue_c
     
 
     checkpoint_directory = os.path.join(root_directory, local_path, checkpoint_directory)
-    sample_directory = os.path.join(root_directory, local_path)
+    test_gene_path = os.path.join(root_directory, local_path, 'test_generation')
+    train_gene_path = os.path.join(root_directory, local_path, 'train_generation')
     
     if not os.path.isdir(checkpoint_directory):
         os.makedirs(checkpoint_directory)
@@ -166,11 +167,14 @@ def train(config_file, dataset, root_directory, checkpoint_directory, continue_c
                     condition = data['partial'].to(device)
                     gt = data['complete'].to(device)
                     size = gt.shape
-                    CD_test_loss, F1_test_loss, _, _ = evaluate(net, generate_batch_size, size, diffusion_hyperparams,
-                                                                    label, condition, gt, n_epoch, sample_directory, save_slices=True)
+                    CD_test_loss, F1_test_loss, _, _, result = evaluate(net, generate_batch_size, size, diffusion_hyperparams,
+                                                                    label, condition, gt, n_epoch, test_gene_path, save_slices=True)
                     if do_log:
                         wandb.log({"CD_test_loss": CD_test_loss,
                                    "F1_test_loss": F1_test_loss})
+                        result = np.array(result)
+                        for i in range(result.shape[0]):
+                            wandb.log({f"test_point_cloud_epoch{n_epoch}": wandb.Object3D(result[i][0])})
                     torch.cuda.empty_cache()
 
                     data = next(iter(train_value_dataloader))
@@ -178,11 +182,14 @@ def train(config_file, dataset, root_directory, checkpoint_directory, continue_c
                     condition = data['partial'].to(device)
                     gt = data['complete'].to(device)
                     size = gt.shape
-                    CD_train_loss, F1_train_loss, _, _ = evaluate(net, generate_batch_size, size, diffusion_hyperparams,
-                                                                    label, condition, gt, n_epoch, sample_directory, save_slices=True)
+                    CD_train_loss, F1_train_loss, _, _, result = evaluate(net, generate_batch_size, size, diffusion_hyperparams,
+                                                                    label, condition, gt, n_epoch, train_gene_path, save_slices=True)
                     if do_log:
                         wandb.log({"CD_train_loss": CD_train_loss,
-                                "F1_train_loss": F1_train_loss})
+                                   "F1_train_loss": F1_train_loss})
+                        result = np.array(result)
+                        for i in range(result.shape[0]):
+                            wandb.log({f"train_point_cloud_epoch{n_epoch}": wandb.Object3D(result[i][0])})
                     torch.cuda.empty_cache()
 
         n_epoch += 1

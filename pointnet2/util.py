@@ -208,6 +208,8 @@ def sampling(net, size, diffusion_hyperparams, label, condition, save_slices,
     label = torch.ones(size[0]).long().cuda() * label
     start_iter = T-1
     with torch.no_grad():
+        if save_slices:
+            result_slices = []
         for t in range(start_iter, -1, -1): # t from T-1 to 0
             diffusion_steps = (t * torch.ones((size[0],))).cuda()  # use the corresponding reverse step
             epsilon_theta = net(x, condition, ts=diffusion_steps, label=label)
@@ -215,10 +217,8 @@ def sampling(net, size, diffusion_hyperparams, label, condition, save_slices,
             x = (x - (1-Alpha[t])/torch.sqrt(1-Alpha_bar[t]) * epsilon_theta) / sqrt_Alpha  # update x_{t-1} to \mu_\theta(x_t)
             x = x + Sigma[t] * std_normal(size)  # add the variance term to x_{t-1}
 
-            if save_slices:
-                result_slices = []
-                if t in t_slices:
-                    result_slices.append(x)
+            if t in t_slices and save_slices:
+                result_slices.append(x)
 
     if save_slices:
         result = torch.stack(result_slices)
